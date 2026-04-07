@@ -1,91 +1,216 @@
 import os
 import uuid
-import json
-from datetime import datetime
-from database_manager import get_db, sync_deleted_notes
-from duckduckgo_search import DDGS
-import requests
-from bs4 import BeautifulSoup
-from llm_manager import ask_llm
-
-LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:14b")
-
-# Assicuriamoci che la cartella inbox esista
-os.makedirs("inbox", exist_ok=True)
-
 import glob
 import shutil
 import re
 from urllib.parse import unquote
+from datetime import datetime
+from pydantic import BaseModel, Field
+import requests
+from bs4 import BeautifulSoup
 
-# 0. Sincronizza prima il DB (cancella eventuali note sparite dalla folder "notes" e "inbox")
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+
+from agno.agent import Agent
+from agno.tools.duckduckgo import DuckDuckGoTools
+
+from database_manager import get_db, sync_deleted_notes
+from llm_manager import get_llm_model
+
+os.makedirs("inbox", exist_ok=True)
+os.makedirs("notes", exist_ok=True)
+
 print("🧹 Syncing Database con file locali...")
 sync_deleted_notes()
 
-def process_image(filepath, db):
-    """
-    Agente per analizzare un'immagine standalone.
-    Estrae il testo ed indicizza nel DB.
-    """
-    print(f"\n📸 [Vision Agent] Analisi immagine: {filepath}")
-    vision_prompt = """
-    Sei un assistente per 'Second Brain' per Zettelkasten.
-    Analizza l'immagine fornita. Se c'è testo riassumilo. 
-    Descrivi la scena. Ritorna una struttura Markdown con: # Titolo Immagine, Descrizione dettagliata, Concetti chiave e Testo estratto.
-    """
-    
+# =======================================================================
+# DEFINIZIONE CLASSI STRUTTURATE (PYDANTIC) -> NIENTE PIÙ JSON FRAGILI!
+# =======================================================================
+class NewNote(BaseModel):
+    filename: str = Field(description="Nome del file markdown completo, es. 'concept_name.md'")
+    title: str = Field(description="Titolo concettuale")
+    aliases: list[str] = Field(description="Alias e sinonimi per questo concetto")
+    domain: str = Field(description="Dominio di macro categoria (es. backend, psychology, ai)")
+    tldr: str = Field(description="Abstract brevissimo in massimo 2 righe")
+    body: str = Field(description="Corpo del testo, rielaborato. Rispetta lo stile e la voce dell'utente!")
+    derives_from: list[str] = Field(description="Concetti base da cui deriva")
+    leads_to: list[str] = Field(description="Concetti avanzati verso cui porta")
+    similar_to: list[str] = Field(description="Concetti trasversali affini")
+
+class NoteUpdate(BaseModel):
+    filename: str = Field(description="Il nome esatto del file da aggiornare (es. api_rest.md)")
+    content_to_add: str = Field(description="Il testo esatto da appendere in fondo al file")
+
+class ExtractionResult(BaseModel):
+    new_notes: list[NewNote] = Field(default=[], description="Lista di note atomiche estratte dall'utente")
+    updates: list[NoteUpdate] = Field(default=[], description="Lista di aggiornamenti a file già esistenti nel database")
+
+class ImageAnalysis(BaseModel):
+    title: str = Field(description="Titolo dell'immagine")
+    description: str = Field(description="Descrizione dettagliata della scena")
+    key_concepts: list[str] = Field(description="Elenco di tag o concetti presenti nell'immagine")
+    extracted_text: str = Field(description="Testo estrapolato fisicamente dall'immagine")
+    summary: str = Field(description="Un brevissimo riassunto di 2/3 righe utile ai fini della RAG")
+
+# =======================================================================
+# GLI AGENTI AGNO - SQUADRA AL COMPLETO
+# =======================================================================
+
+splitter_agent = Agent(
+    name="Data Extractor",
+    role="Estrattore di Conoscenza Zettelkasten",
+    model=get_llm_model(),
+    output_schema=ExtractionResult,
+    instructions=[
+        "Riceverai gli appunti grezzi dell'utente e il contesto preesistente nel Vault.",
+        "Se l'utente parla di concetti del tutto nuovi, definisci oggetti 'NewNote'.",
+        "Assicurati che i filename e i title contengano nomi validi e parlanti.",
+        "Il campo body DEVE contenere il succo di tutto, rispettando il tone of voice dell'utente.",
+        "Genera un output fedele allo schema."
+    ]
+)
+
+# 1. Creiamo lo strumento personalizzato per leggere le pagine web
+def read_webpage(url: str) -> str:
+    """Legge e restituisce il contenuto testuale di una pagina web."""
     try:
-        from llm_manager import ask_llm
-        image_content = ask_llm(vision_prompt, image_paths=[filepath])
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        resp = requests.get(url, headers=headers, timeout=5)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        text = " ".join([p.get_text() for p in soup.find_all('p')])
+        return text[:3000] # Limitiamo a 3000 caratteri per non sovraccaricare il modello
+    except Exception as e:
+        return f"Impossibile leggere la pagina {url}: {e}"
+
+# 2. Potenziamo il Researcher Agent passandogli lo strumento
+researcher_agent = Agent(
+    name="Deep Researcher",
+    role="Cercare e leggere documenti accademici e tecnici sul web",
+    model=get_llm_model(),
+    tools=[DuckDuckGoTools(), read_webpage],
+    instructions=[
+        "1. Usa DuckDuckGo per cercare l'argomento (prediligi documentazione ufficiale o paper).",
+        "2. USA SEMPRE lo strumento 'read_webpage' per leggere il contenuto reale dei primi 2 link utili trovati.",
+        "3. Sintetizza il testo che hai letto dalle pagine web, scartando banner, cookie, o informazioni non pertinenti.",
+        "4. Restituisci la sintesi tecnica e i link che hai visitato."
+    ]
+)
+
+writer_agent = Agent(
+    name="Synthesizer Editor",
+    role="Autore di Note Zettelkasten",
+    model=get_llm_model(),
+    instructions=[
+        "Il tuo compito è espandere l'appunto base dell'utente incrociandolo col contesto web cercato dal ricercatore.",
+        "NON usare la voce da assistente IA. Usa la voce originaria dell'utente.",
+        "Consegna esclusivamente testo formattato in puro Markdown pronto da copia-incollare.",
+    ]
+)
+
+lecturer_agent = Agent(
+    name="Map of Content Creator",
+    role="Bibliotecario MOC",
+    model=get_llm_model(),
+    instructions=[
+        "L'utente ha elaborato svariati concetti. Scrivi una 'Literature Note'.",
+        "Ritorna un riassunto coeso e discorsivo dei punti trattati e dei takeaway principali.",
+        "Evita introduzioni come 'Ecco il riassunto'. Ritorna direttamente il testo in markdown."
+    ]
+)
+
+vision_agent = Agent(
+    name="Vision Analyst",
+    role="Analista di Immagini e Screenshot",
+    model=get_llm_model(vision=True),
+    output_schema=ImageAnalysis,
+    instructions=[
+        "Sei gli occhi del Second Brain.",
+        "Analizza l'immagine fornita estraendone testo, significato e contesto generale.",
+        "Restituisci l'oggetto strutturato con i campi richiesti in modo che l'Orchestratore possa indicizzare la conoscenza."
+    ]
+)
+
+# =======================================================================
+# FUNZIONI DI SUPPORTO PER IL DATABASE LOCALE
+# =======================================================================
+
+def retrieve_context(raw_text):
+    print("🔍 Local RAG: Searching the Vector DB for existing similar notes...")
+    collection = get_db()
+    try:
+        results = collection.query(query_texts=[raw_text], n_results=3)
+        if results['documents'] and results['documents'][0]:
+            docs = results['documents'][0]
+            sources = results['metadatas'][0]
+            context = ""
+            for doc, meta in zip(docs, sources):
+                context += f"\n### EXISTING NOTE: {meta['source']}\n{doc}\n"
+            print("   -> Existing context found.")
+            return context
+    except Exception:
+        print("   -> DB is empty or still initializing.")
+    return "No existing notes found in the database."
+
+def agent_librarian(filename, content, db):
+    print(f"📚 Librarian: Indexing {filename} into the Vector DB...")
+    db.add(
+        documents=[content],
+        metadatas=[{"source": filename}],
+        ids=[str(uuid.uuid4())]
+    )
+
+# =======================================================================
+# TRATTAMENTO IMMAGINI
+# =======================================================================
+
+def process_image(filepath, db):
+    print(f"\n📸 [Vision Agent] Analisi immagine autonoma: {filepath}")
+    try:
+        response = vision_agent.run("Analizza l'immagine nel dettaglio.", images=[filepath])
+        result: ImageAnalysis = response.content
         
         base_name = os.path.basename(filepath)
         note_name = f"image_note_{base_name}.md"
-        out_path = os.path.join("notes", note_name) # salviamo in notes
+        out_path = os.path.join("notes", note_name)
         
+        markdown_content = f"---\ntags:\n  - status/1-draft\n  - image\ntitle: {result.title}\nkey_concepts: {', '.join(result.key_concepts)}\n---\n\n![[{base_name}]]\n\n# {result.title}\n\n## 🖼️ Descrizione\n{result.description}\n\n## 📝 Testo Estratto\n> {result.extracted_text if result.extracted_text else 'Nessun testo rivelato.'}\n"
         with open(out_path, "w", encoding="utf-8") as f:
-            f.write(f"---\ntags:\n  - status/1-draft\n  - image\n---\n\n![[{base_name}]]\n\n{image_content}")
+            f.write(markdown_content)
             
         db.add(
-            documents=[image_content],
+            documents=[result.summary],
             metadatas=[{"source": note_name, "type": "image_analysis"}],
             ids=[f"{base_name}_analysis"]
         )
-        print(f"✅ Immagine processata e convertita in: {note_name}")
+        print(f"✅ Immagine processata e salvata: {note_name}")
         
     except Exception as e:
         print(f"❌ Errore processamento immagine {filepath}: {e}")
 
 def extract_and_solve_embedded_images(content, db):
-    """
-    Trova i link alle immagini in formato Obsidian (es. ![[immagine.png]]).
-    Richiede al LLM Vision di analizzarle e memorizza il risultato come metadato.
-    """
     regex = r'!\[\[(.*?\.(?:png|jpg|jpeg|gif|webp))\]\]'
     matches = re.findall(regex, content, re.IGNORECASE)
     
-    from llm_manager import ask_llm
-    
     for match in matches:
-        print(f"🔍 [Embedded Vision Agent] Trovata immagine incorporata: ![[{match}]]")
-        decoded_match = unquote(match) # Rimuovi %20 se ci sono spazi
-        # Trova il file (cerca in tutta la root)
-        search_pattern = f"**/{decoded_match}"
+        print(f"🔍 [Embedded Vision Agent] Immagine inline trovata: ![[{match}]]")
+        search_pattern = f"**/{unquote(match)}"
         found_files = glob.glob(search_pattern, recursive=True)
         
         if found_files:
             image_path = found_files[0]
-            print(f"✅ Immagine trovata: {image_path}")
-            vision_prompt = "Sei un analista per Second Brain. L'utente ha inserito questa immagine in una nota. Riassumi questa immagine concisamente in 3 righe per contestualizzarla per la RAG."
+            print(f"✅ Ritrovata: {image_path}")
             try:
-                 image_context = ask_llm(vision_prompt, image_paths=[image_path])
-                 print(f"👁️ Immagine '{match}' tradotta in: {image_context[:50]}...")
+                 response = vision_agent.run("Fornisci summary per la ricerca RAG dell'immagine.", images=[image_path])
+                 result: ImageAnalysis = response.content
                  
-                 # Aggiungiamo il contesto visivo nascosto alla nota RAG
-                 content = content.replace(f"![[{match}]]", f"![[{match}]]\n\n> [Vision Analysis]: {image_context}")
+                 print(f"👁️ Immagine tradotta in: {result.summary[:50]}...")
                  
-                 # Aggiungila al VectorDB come blocco indipendente
+                 content = content.replace(f"![[{match}]]", f"![[{match}]]\n\n> [Vision Analysis]: {result.summary}")
+                 
                  db.add(
-                    documents=[image_context],
+                    documents=[result.summary],
                     metadatas=[{"source": match, "type": "embedded_image"}],
                     ids=[f"embedded_{match}_analysis"]
                  )
@@ -96,282 +221,12 @@ def extract_and_solve_embedded_images(content, db):
             
     return content
 
-# --- AGENT 0: THE RESEARCHER (Context Retrieval) ---
-def retrieve_context(raw_text):
-    print("🔍 Researcher Agent: Searching the Vector DB for existing similar notes...")
-    collection = get_db()
-    try:
-        results = collection.query(query_texts=[raw_text], n_results=3)
-        if results['documents'] and results['documents'][0]:
-            docs = results['documents'][0]
-            sources = results['metadatas'][0]
-            context = ""
-            for doc, meta in zip(docs, sources):
-                context += f"\n### EXISTING NOTE: {meta['source']}\n{doc}\n"
-            print("   -> Found existing context to avoid duplicates.")
-            return context
-    except Exception as e:
-        print(f"   -> DB is empty or still initializing.")
-    return "No existing notes found in the database."
+# =======================================================================
+# L'ORCHESTRA PRINCIPALE
+# =======================================================================
 
-# --- AGENT 1: THE SPLITTER (JSON Mode) ---
-def agent_splitter(raw_text, existing_context):
-    print("🤖 Splitter Agent: Extracting structured data (JSON)...")
-    
-    prompt = f"""You are an advanced data extraction engine. Analyze the RAW TEXT and output a SINGLE JSON OBJECT.
-    DO NOT copy the schema examples. Extract ACTUAL data from the user's text.
-    
-    EXISTING NOTES:
-    {existing_context}
-    
-    RAW TEXT:
-    {raw_text}
-    
-    Return a JSON object strictly matching this schema type:
-    {{
-        "new_notes": [
-            {{
-                "filename": "string (format: concept_name.md)",
-                "title": "string (the title of the concept)",
-                "aliases": ["string", "string"],
-                "domain": "string (e.g. backend, ai, frontend)",
-                "tldr": "string (2 lines summary)",
-                "body": "string (detailed markdown content)",
-                "derives_from": ["string"],
-                "leads_to": ["string"],
-                "similar_to": ["string"]
-            }}
-        ],
-        "updates": [
-            {{
-                "filename": "string (must be the exact name of an existing note)",
-                "content_to_add": "string (the exact new text to append)"
-            }}
-        ]
-    }}
-    """
-    
-    try:
-        content = ask_llm(prompt, require_json=True)
-        return json.loads(content)
-    except Exception as e:
-        print(f"❌ Error: The model failed to generate valid JSON. Dettagli: {e}")
-        return {"new_notes": [], "updates": []}
-
-# --- AGENT 2: THE LIBRARIAN (Indexing) ---
-def agent_librarian(filename, content):
-    print(f"📚 Librarian Agent: Indexing {filename} into the Vector DB...")
-    collection = get_db()
-    collection.add(
-        documents=[content],
-        metadatas=[{"source": filename}],
-        ids=[str(uuid.uuid4())]
-    )
-
-# --- AGENT 3: THE DEEP RESEARCHER (Web Scraping) ---
-def agent_deep_researcher(concept_title, domain):
-    print(f"🌐 Deep Researcher Agent: Scraping deep context for '{concept_title}'...")
-    query = f"{concept_title} {domain} research paper OR documentation".strip()
-    if not query:
-        return "", []
-    
-    scraped_text = ""
-    urls = []
-    
-    try:
-        results = DDGS().text(query, max_results=2)
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        
-        for res in results:
-            url = res.get('href', '')
-            if not url: continue
-            
-            urls.append(url)
-            try:
-                resp = requests.get(url, headers=headers, timeout=5)
-                resp.raise_for_status()
-                soup = BeautifulSoup(resp.text, 'html.parser')
-                text = " ".join([p.get_text() for p in soup.find_all('p')])
-                scraped_text += f"\n--- Source: {url} ---\n{text[:2000]}\n"
-            except Exception as e:
-                print(f"   -> ⚠️  Failed to scrape {url}: {e}")
-                
-        return scraped_text, urls
-    except Exception as e:
-        print(f"   -> ⚠️  Web search failed: {e}")
-        return "", []
-
-# --- AGENT 4: THE WRITER (Synthesis) ---
-def agent_writer(concept_title, user_raw_body, scraped_context):
-    print(f"✍️ Writer Agent: Expanding note '{concept_title}' with web context...")
-    prompt = f"""You are a personal knowledge management assistant. Your task is to expand the user's notes while STRICTLY MAINTAINING the user's original writing style, tone, and perspective.
-
-    Rules:
-    1. The USER'S RAW NOTES are your primary source of truth. You must write in the user's exact voice and style.
-    2. Use the WEB RESEARCH CONTEXT ONLY to add accurate technical depth, examples, or missing details.
-    3. IGNORE ANY SPAM OR OFF-TOPIC CONTENT in the web research (e.g., ignore random articles, foreign language lessons, or generic forums that don't strictly match the core concept).
-    4. Do not sound like an AI or an academic textbook unless the user's raw notes sound like that. Write as if the user researched a bit more and expanded their own note.
-    5. Do not include markdown headers like '# Body', just return the raw text.
-    
-    CONCEPT: {concept_title}
-    
-    USER'S RAW NOTES:
-    {user_raw_body}
-    
-    WEB RESEARCH CONTEXT (Filter out garbage!):
-    {scraped_context}
-    """
-    
-    try:
-        content = ask_llm(prompt)
-        return content.strip()
-    except Exception as e:
-        print(f"   -> ❌ Writer failed: {e}")
-        return user_raw_body
-
-# --- AGENT 5: THE LECTURER (Literature Note) ---
-def agent_literature_note(raw_text, original_filename, generated_notes):
-    print(f"📑 Lecturer Agent: Generating Literature Note for '{original_filename}'...")
-    
-    # Se non ci sono note generate, non fa nulla
-    if not generated_notes:
-        return
-        
-    prompt = f"""You are a personal knowledge management assistant.
-    Summarize the following RAW NOTES into a single comprehensive "Literature Note" or "Map of Content".
-    Write a concise summary of the topics discussed. Mention the key takeaways.
-    Format your response in Markdown without wrapping in quotes or codeblocks.
-    
-    RAW NOTES:
-    {raw_text}
-    """
-    
-    try:
-        content = ask_llm(prompt)
-        summary = content.strip()
-    except Exception as e:
-        print(f"   -> ❌ Literature summary failed: {e}")
-        summary = "No summary generated."
-        
-    oggi = datetime.now()
-    data_str = oggi.strftime("%Y-%m-%d")
-    id_univoco = oggi.strftime("%Y%m%d%H%M%S")
-    
-    # Prepara i link alle note atomiche
-    links_markdown = "\n".join([f"- [[{note.get('filename', '').replace('.md', '')}]] - *{note.get('title', '')}*" for note in generated_notes])
-    
-    lit_filename = f"LIT_{os.path.basename(original_filename)}"
-    
-    markdown_content = (
-        "---\n"
-        f"id: {id_univoco}\n"
-        "tags:\n"
-        "  - type/literature-note\n"
-        "  - status/1-draft\n"
-        f"created: {data_str}\n"
-        f"modified: {data_str}\n"
-        "---\n\n"
-        f"# 📚 source: {original_filename}\n\n"
-        "## 📝 Summary\n"
-        f"{summary}\n\n"
-        "---\n\n"
-        "## 🔗 Atomic Concepts Extracted\n"
-        "Questi sono i concetti chiave estratti da questa fonte:\n\n"
-        f"{links_markdown}\n"
-    )
-    
-    file_path = os.path.join("inbox", lit_filename)
-    with open(file_path, "w", encoding="utf-8") as f:
-        f.write(markdown_content)
-    
-    print(f"   -> 🆕 Generated Literature Note: {lit_filename}")
-    
-    # Indicizziamo la Literature Note (meno stringente la ricerca, ma fa contesto)
-    agent_librarian(lit_filename, markdown_content)
-
-# --- PYTHON FORMATTER: CREA I FILE DAL JSON ---
-def create_markdown_files(parsed_data):
-    print("💾 Python Formatter: Generating Markdown files...")
-    
-    oggi = datetime.now()
-    data_str = oggi.strftime("%Y-%m-%d")
-    id_univoco = oggi.strftime("%Y%m%d%H%M%S") # Es: 20260407165012
-    
-   # 1. Processa le NOTE NUOVE
-    for index, nota in enumerate(parsed_data.get('new_notes', [])):
-        filename = nota.get('filename', f"new_note_{index}.md").strip()
-        
-        # Gestisci le liste formattandole per i wikilinks
-        derives = ", ".join([f"[[{x}]]" for x in nota.get('derives_from', [])])
-        leads = ", ".join([f"[[{x}]]" for x in nota.get('leads_to', [])])
-        similar = ", ".join([f"[[{x}]]" for x in nota.get('similar_to', [])])
-        aliases = ", ".join([f'"{x}"' for x in nota.get('aliases', [])])
-        
-        scraped_text, urls = agent_deep_researcher(nota.get('title', ''), nota.get('domain', ''))
-        expanded_body = agent_writer(nota.get('title', ''), nota.get('body', ''), scraped_text)
-        urls_markdown = "\n".join([f"- {url}" for url in urls])
-        
-        # Costruzione sicura della stringa (zero problemi di indentazione)
-        markdown_content = (
-            "---\n"
-            f"id: {id_univoco}\n"
-            f"aliases: [{aliases}]\n"
-            "tags:\n"
-            "  - status/1-draft\n"
-            f"  - domain/{nota.get('domain', 'general')}\n"
-            f"created: {data_str}\n"
-            f"modified: {data_str}\n"
-            "---\n\n"
-            f"# 📌 {nota.get('title', 'Untitled Concept')}\n\n"
-            "## 🧠 TL;DR\n"
-            "> [!summary] Abstract\n"
-            f"> {nota.get('tldr', '')}\n\n"
-            "---\n\n"
-            "## 📝 Body\n"
-            f"{expanded_body}\n\n"
-            "---\n\n"
-            "## 🔗 Knowledge Graph\n"
-            f"- **Derives from (Base):** {derives}\n"
-            f"- **Leads to (Developments):** {leads}\n"
-            f"- **Similar concepts:** {similar}\n\n"
-            "## 📚 Sources & References\n"
-            "- User's raw notes\n"
-            f"{urls_markdown}\n"
-        )
-        
-        # Salviamo il file
-        file_path = os.path.join("inbox", filename)
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(markdown_content)
-        print(f"   -> 🆕 Generated new note: {filename}")
-        
-        # Passiamo al DB
-        agent_librarian(filename, markdown_content)
-        
-    # 2. Processa gli AGGIORNAMENTI
-    for update in parsed_data.get('updates', []):
-        filename = update.get('filename', '').strip()
-        content = update.get('content_to_add', '').strip()
-        
-        # Sanitization strict check
-        if not filename or not content:
-            print(f"   -> ⏭️ Skipped ghost update due to empty filename or content")
-            continue
-            
-        if "string (" in filename or "unknown.md" in filename:
-            print(f"   -> ⏭️ Skipped hallucinated garbage filename: '{filename}'")
-            continue
-        
-        save_name = f"UPDATE_{filename}"
-        file_path = os.path.join("inbox", save_name)
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(content)
-            
-        print(f"   -> 🔄 Created update file: {save_name}")
-
-# --- THE ORCHESTRATOR ---
 def run_pipeline(raw_note_path):
-    print(f"🚀 Starting Pipeline for file: {raw_note_path}\n")
+    print(f"🚀 Starting Agno Pipeline for file: {raw_note_path}\n")
     
     if not os.path.exists(raw_note_path):
         print(f"❌ Error: File {raw_note_path} not found.")
@@ -386,21 +241,107 @@ def run_pipeline(raw_note_path):
 
     with open(raw_note_path, 'r', encoding="utf-8") as f:
         raw_text = f.read()
-        
     raw_text = extract_and_solve_embedded_images(raw_text, db)
-
+    
     existing_context = retrieve_context(raw_text)
     
-    # L'AI restituisce ora un dizionario Python pulito
-    parsed_json_data = agent_splitter(raw_text, existing_context)
+    extractor_prompt = f"Contesto vault preesistente:\n{existing_context}\n\nNote odierne dell'utente:\n{raw_text}"
+    print("🤖 Splitter Agent in esecuzione...")
+    extractor_response = splitter_agent.run(extractor_prompt)
+    extracted_data: ExtractionResult = extractor_response.content
     
-    # Python genera i file perfetti
-    create_markdown_files(parsed_json_data)
+    oggi = datetime.now()
+    data_str = oggi.strftime("%Y-%m-%d")
+    id_univoco = oggi.strftime("%Y%m%d%H%M%S")
     
-    # 3. Creiamo la Literature Note come MOC (Map of Content)
-    agent_literature_note(raw_text, raw_note_path, parsed_json_data.get('new_notes', []))
+    print("💾 Python Formatter & Researchers: Generazione delle Atomic Notes...")
     
-    print("\n✅ Pipeline completed successfully!")
+    for i, note in enumerate(extracted_data.new_notes):
+        print(f"   => Elaborazione approfondita per '{note.title}'")
+        
+        research_response = researcher_agent.run(f"Cerca approfondimenti tecnici o documenti per il concetto '{note.title}' (dominio: {note.domain})")
+        scraped_context = research_response.content
+        
+        write_prompt = f"""Sei un Technical Writer esperto. Riscrivi ed espandi l'appunto dell'utente.
+        
+        REGOLA CRITICA E ASSOLUTA: Questo concetto appartiene strettamente al dominio: '{note.domain}'. 
+        Se la ricerca web parla di argomenti fuori da questo dominio (es. filosofia, grammatica, dibattiti sociali, forum in altre lingue), IGNORALA COMPLETAMENTE.
+        Usa la ricerca web SOLO se aggiunge valore tecnico e accademico all'appunto dell'utente.
+        Restituisci solo il Markdown pulito, senza presentazioni.
+        
+        TESTO GREZZO DELL'UTENTE:
+        {note.body}
+        
+        RICERCA WEB UTILE:
+        {scraped_context}
+        """
+        try:
+            writer_response = writer_agent.run(write_prompt)
+            expanded_body = writer_response.content.strip()
+        except:
+            expanded_body = note.body
+            
+        derives = ", ".join([f"[[{x}]]" for x in note.derives_from])
+        leads = ", ".join([f"[[{x}]]" for x in note.leads_to])
+        similar = ", ".join([f"[[{x}]]" for x in note.similar_to])
+        aliases = ", ".join([f'"{x}"' for x in note.aliases])
+        
+        markdown_content = f"---\nid: {id_univoco}\naliases: [{aliases}]\ntags:\n  - status/1-draft\n  - domain/{note.domain}\ncreated: {data_str}\nmodified: {data_str}\n---\n\n# 📌 {note.title}\n\n## 🧠 TL;DR\n> [!summary] Abstract\n> {note.tldr}\n\n---\n\n## 📝 Body\n{expanded_body}\n\n---\n\n## 🔗 Knowledge Graph\n- **Derives from:** {derives}\n- **Leads to:** {leads}\n- **Similar:** {similar}\n\n## 📚 Sources\n- User Notes & Agent Web Search\n"
+        
+        # FIX: Assicurati che l'estensione .md sia sempre presente
+        note_filename = note.filename.strip()
+        if not note_filename.endswith('.md'):
+            note_filename += '.md'
+            
+        file_path = os.path.join("inbox", note_filename)
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(markdown_content)
+        
+        print(f"   -> 🆕 Salvata nota finale: {note_filename}")
+        agent_librarian(note_filename, markdown_content, db)
+        
+    for update in extracted_data.updates:
+        fname = update.filename.strip()
+        if not fname.endswith('.md'):
+            fname += '.md'
+        content = update.content_to_add.strip()
+        
+        # Filtro rigoroso anti-allucinazione
+        if not fname or not content or "string" in fname or "unknown" in fname:
+            print(f"   -> ⏭️ Skipped ghost update: '{fname}'")
+            continue
+            
+        file_path = os.path.join("inbox", f"UPDATE_{fname}")
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"   -> 🔄 Update salvato per: {fname}")
+
+    if extracted_data.new_notes:
+        print("📑 Lecturer Agent: Generazione MOC riassuntiva...")
+        try:
+            lecturer_resp = lecturer_agent.run(raw_text)
+            summary = lecturer_resp.content.strip()
+        except:
+             summary = "Nessun riassunto."
+             
+        links_markdown = "\n".join([f"- [[{note.filename.replace('.md', '')}]] - *{note.title}*" for note in extracted_data.new_notes])
+        
+        lit_filename = f"LIT_{os.path.basename(raw_note_path)}"
+        markdown_content = f"---\nid: {id_univoco}\ntags:\n  - type/literature-note\n  - status/1-draft\ncreated: {data_str}\nmodified: {data_str}\n---\n\n# 📚 source: {os.path.basename(raw_note_path)}\n\n## 📝 Summary\n{summary}\n\n---\n\n## 🔗 Atomic Concepts Extracted\n{links_markdown}\n"
+        
+        file_path = os.path.join("inbox", lit_filename)
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(markdown_content)
+        
+        print(f"   -> 🆕 Generated Literature Note: {lit_filename}")
+        agent_librarian(lit_filename, markdown_content, db)
+
+    print("\n✅ Agno Orchestration Pipeline completed successfully!")
 
 if __name__ == "__main__":
-    run_pipeline("notes/test_rag.md")
+    import sys
+    if len(sys.argv) > 1:
+        run_pipeline(sys.argv[1])
+    else:
+        for arg in glob.glob("raw_notes/*.md"):
+            run_pipeline(arg)

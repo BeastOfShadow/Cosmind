@@ -4,3 +4,8 @@ duckduckgo-search
 requests
 beautifulsoup4
 openai
+ddgs
+agno
+plotly 
+scikit-learn 
+pandas

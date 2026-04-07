@@ -1,2 +1,2 @@
 #!/bin/bash
-docker exec -it neural_network_agent python brain_orchestrator.py
+docker exec -it neural_network_agent python brain_orchestrator.py "$@"
