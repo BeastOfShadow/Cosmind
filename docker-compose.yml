@@ -1,0 +1,24 @@
+services:
+  agent_app:
+    build: .
+    container_name: neural_network_agent
+    environment:
+      # host.docker.internal dice a Docker di uscire dal container
+      # e puntare al tuo Mac (dove l'app di Ollama sta attualmente usando i core M4 nativamente)
+      - OLLAMA_HOST=http://host.docker.internal:11434
+    env_file:
+      - .env
+    volumes:
+      # Sincronizza i file in tempo reale senza dover ricostruire il docker
+      - ./inbox:/app/inbox
+      - ./notes:/app/notes
+      - chroma_data:/app/.chroma_db
+      - ./brain_orchestrator.py:/app/brain_orchestrator.py
+      - ./chat_agent.py:/app/chat_agent.py
+      - ./database_manager.py:/app/database_manager.py
+    # Teniamo acceso il container per poter lanciare i comandi interattivamente via Docker exec
+    command: tail -f /dev/null
+
+volumes:
+  chroma_data:
+
