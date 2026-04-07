@@ -13,9 +13,8 @@ services:
       - ./inbox:/app/inbox
       - ./notes:/app/notes
       - chroma_data:/app/.chroma_db
-      - ./brain_orchestrator.py:/app/brain_orchestrator.py
-      - ./chat_agent.py:/app/chat_agent.py
-      - ./database_manager.py:/app/database_manager.py
+      - ./src:/app/src
+      - ./main.py:/app/main.py
     # Teniamo acceso il container per poter lanciare i comandi interattivamente via Docker exec
     command: tail -f /dev/null
 

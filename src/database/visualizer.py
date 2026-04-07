@@ -1,7 +1,7 @@
-import chromadb
-import pandas as pd
-import plotly.express as px
-from sklearn.decomposition import PCA
+import chromadb # type: ignore
+import pandas as pd # type: ignore
+import plotly.express as px # type: ignore
+from sklearn.decomposition import PCA # type: ignore
 import textwrap
 
 def visualize_3d_chroma():

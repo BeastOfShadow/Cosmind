@@ -34,6 +34,5 @@ docker-compose up -d --build
 
 echo "========================================="
 echo "✅ Sistema pronto!"
-echo "👉 Per elaborare nuove note usa: ./run_brain.sh"
-echo "👉 Per chattare usa:           ./run_chat.sh"
+echo "👉 Lancia il programma con ./run.sh"
 echo "========================================="

@@ -8,11 +8,11 @@ def get_llm_model(vision=False):
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
     
     if OPENAI_API_KEY:
-        from agno.models.openai import OpenAIChat
+        from agno.models.openai import OpenAIChat # type: ignore
         # Usiamo il cloud (ottimo anche per la vision!)
         return OpenAIChat(id=os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
     else:
-        from agno.models.ollama import Ollama
+        from agno.models.ollama import Ollama # type: ignore
         # Usiamo il locale
         model_name = os.getenv("LLM_MODEL", "qwen2.5:14b")
         if vision:

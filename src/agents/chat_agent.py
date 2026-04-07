@@ -1,7 +1,7 @@
 import os
-from database_manager import get_db
-from llm_manager import get_llm_model
-from agno.agent import Agent
+from src.database.vector_db import get_db
+from src.config.llm_manager import get_llm_model
+from agno.agent import Agent # type: ignore
 
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:14b")
 

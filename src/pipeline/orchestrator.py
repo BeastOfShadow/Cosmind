@@ -1,136 +1,24 @@
 import os
 import uuid
 import glob
-import shutil
 import re
 from urllib.parse import unquote
 from datetime import datetime
-from pydantic import BaseModel, Field
-import requests
-from bs4 import BeautifulSoup
 
 import warnings
+
+from src.models.schemas import ExtractionResult, ImageAnalysis
+from src.agents.core_agents import vision_agent, splitter_agent, researcher_agent, writer_agent, lecturer_agent
 warnings.filterwarnings("ignore", category=UserWarning)
 
-from agno.agent import Agent
-from agno.tools.duckduckgo import DuckDuckGoTools
 
-from database_manager import get_db, sync_deleted_notes
-from llm_manager import get_llm_model
+from src.database.vector_db import get_db, sync_deleted_notes
 
 os.makedirs("inbox", exist_ok=True)
 os.makedirs("notes", exist_ok=True)
 
 print("🧹 Syncing Database con file locali...")
 sync_deleted_notes()
-
-# =======================================================================
-# DEFINIZIONE CLASSI STRUTTURATE (PYDANTIC) -> NIENTE PIÙ JSON FRAGILI!
-# =======================================================================
-class NewNote(BaseModel):
-    filename: str = Field(description="Nome del file markdown completo, es. 'concept_name.md'")
-    title: str = Field(description="Titolo concettuale")
-    aliases: list[str] = Field(description="Alias e sinonimi per questo concetto")
-    domain: str = Field(description="Dominio di macro categoria (es. backend, psychology, ai)")
-    tldr: str = Field(description="Abstract brevissimo in massimo 2 righe")
-    body: str = Field(description="Corpo del testo, rielaborato. Rispetta lo stile e la voce dell'utente!")
-    derives_from: list[str] = Field(description="Concetti base da cui deriva")
-    leads_to: list[str] = Field(description="Concetti avanzati verso cui porta")
-    similar_to: list[str] = Field(description="Concetti trasversali affini")
-
-class NoteUpdate(BaseModel):
-    filename: str = Field(description="Il nome esatto del file da aggiornare (es. api_rest.md)")
-    content_to_add: str = Field(description="Il testo esatto da appendere in fondo al file")
-
-class ExtractionResult(BaseModel):
-    new_notes: list[NewNote] = Field(default=[], description="Lista di note atomiche estratte dall'utente")
-    updates: list[NoteUpdate] = Field(default=[], description="Lista di aggiornamenti a file già esistenti nel database")
-
-class ImageAnalysis(BaseModel):
-    title: str = Field(description="Titolo dell'immagine")
-    description: str = Field(description="Descrizione dettagliata della scena")
-    key_concepts: list[str] = Field(description="Elenco di tag o concetti presenti nell'immagine")
-    extracted_text: str = Field(description="Testo estrapolato fisicamente dall'immagine")
-    summary: str = Field(description="Un brevissimo riassunto di 2/3 righe utile ai fini della RAG")
-
-# =======================================================================
-# GLI AGENTI AGNO - SQUADRA AL COMPLETO
-# =======================================================================
-
-splitter_agent = Agent(
-    name="Data Extractor",
-    role="Estrattore di Conoscenza Zettelkasten",
-    model=get_llm_model(),
-    output_schema=ExtractionResult,
-    instructions=[
-        "Riceverai gli appunti grezzi dell'utente e il contesto preesistente nel Vault.",
-        "Se l'utente parla di concetti del tutto nuovi, definisci oggetti 'NewNote'.",
-        "Assicurati che i filename e i title contengano nomi validi e parlanti.",
-        "Il campo body DEVE contenere il succo di tutto, rispettando il tone of voice dell'utente.",
-        "Genera un output fedele allo schema."
-    ]
-)
-
-# 1. Creiamo lo strumento personalizzato per leggere le pagine web
-def read_webpage(url: str) -> str:
-    """Legge e restituisce il contenuto testuale di una pagina web."""
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        resp = requests.get(url, headers=headers, timeout=5)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        text = " ".join([p.get_text() for p in soup.find_all('p')])
-        return text[:3000] # Limitiamo a 3000 caratteri per non sovraccaricare il modello
-    except Exception as e:
-        return f"Impossibile leggere la pagina {url}: {e}"
-
-# 2. Potenziamo il Researcher Agent passandogli lo strumento
-researcher_agent = Agent(
-    name="Deep Researcher",
-    role="Cercare e leggere documenti accademici e tecnici sul web",
-    model=get_llm_model(),
-    tools=[DuckDuckGoTools(), read_webpage],
-    instructions=[
-        "1. Usa DuckDuckGo per cercare l'argomento (prediligi documentazione ufficiale o paper).",
-        "2. USA SEMPRE lo strumento 'read_webpage' per leggere il contenuto reale dei primi 2 link utili trovati.",
-        "3. Sintetizza il testo che hai letto dalle pagine web, scartando banner, cookie, o informazioni non pertinenti.",
-        "4. Restituisci la sintesi tecnica e i link che hai visitato."
-    ]
-)
-
-writer_agent = Agent(
-    name="Synthesizer Editor",
-    role="Autore di Note Zettelkasten",
-    model=get_llm_model(),
-    instructions=[
-        "Il tuo compito è espandere l'appunto base dell'utente incrociandolo col contesto web cercato dal ricercatore.",
-        "NON usare la voce da assistente IA. Usa la voce originaria dell'utente.",
-        "Consegna esclusivamente testo formattato in puro Markdown pronto da copia-incollare.",
-    ]
-)
-
-lecturer_agent = Agent(
-    name="Map of Content Creator",
-    role="Bibliotecario MOC",
-    model=get_llm_model(),
-    instructions=[
-        "L'utente ha elaborato svariati concetti. Scrivi una 'Literature Note'.",
-        "Ritorna un riassunto coeso e discorsivo dei punti trattati e dei takeaway principali.",
-        "Evita introduzioni come 'Ecco il riassunto'. Ritorna direttamente il testo in markdown."
-    ]
-)
-
-vision_agent = Agent(
-    name="Vision Analyst",
-    role="Analista di Immagini e Screenshot",
-    model=get_llm_model(vision=True),
-    output_schema=ImageAnalysis,
-    instructions=[
-        "Sei gli occhi del Second Brain.",
-        "Analizza l'immagine fornita estraendone testo, significato e contesto generale.",
-        "Restituisci l'oggetto strutturato con i campi richiesti in modo che l'Orchestratore possa indicizzare la conoscenza."
-    ]
-)
 
 # =======================================================================
 # FUNZIONI DI SUPPORTO PER IL DATABASE LOCALE
