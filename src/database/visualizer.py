@@ -3,44 +3,34 @@ import pandas as pd # type: ignore
 import plotly.express as px # type: ignore
 from sklearn.decomposition import PCA # type: ignore
 import textwrap
+import os
 
 def visualize_3d_chroma():
     print("🧠 Connessione al Second Brain (ChromaDB)...")
-    # Connettiti allo stesso database usato dal tuo manager
-    client = chromadb.PersistentClient(path="./.chroma_db")
-    collection = client.get_collection(name="note_ricerca")
+    # Usa il percorso assoluto interno a Docker
+    client = chromadb.PersistentClient(path="/app/.chroma_db")
     
-    # Estrai TUTTO: ID, metadati, testo e soprattutto i Vettori (Embeddings)
+    try:
+        collection = client.get_collection(name="note_ricerca")
+    except Exception:
+        print("❌ Collezione 'note_ricerca' non trovata. Hai già processato delle note?")
+        return
+    
     data = collection.get(include=['embeddings', 'documents', 'metadatas'])
-    
     embeddings = data.get('embeddings')
-    if not embeddings:
-        print("❌ Nessun vettore (embedding) trovato nel database.")
+    
+    if embeddings is None or len(embeddings) == 0:
+        print("❌ Il database è vuoto. Non c'è nulla da visualizzare.")
         return
         
-    print(f"✅ Trovate {len(embeddings)} note vettorializzate. Compressione in 3D in corso...")
+    print(f"✅ Note trovate: {len(embeddings)}. Elaborazione mappa 3D...")
     
-    # 1. Riduzione della dimensionalità da ~384 dimensioni a 3 (PCA)
     pca = PCA(n_components=3)
     embeddings_3d = pca.fit_transform(embeddings)
     
-    # 2. Prepariamo i dati per il grafico
-    sources = []
-    hover_texts = []
-    
-    for i in range(len(embeddings)):
-        # Estrai il nome del file dal metadato "source"
-        meta = data['metadatas'][i]
-        source_name = meta.get('source', 'Sconosciuto') if meta else 'Sconosciuto'
-        sources.append(source_name)
-        
-        # Prendi un pezzetto di testo per mostrarlo quando passi col mouse sul pallino
-        doc = data['documents'][i]
-        # Taglia e va a capo per non avere una riga chilometrica nel tooltip
-        short_doc = "<br>".join(textwrap.wrap(doc[:150], width=50)) + "..."
-        hover_texts.append(short_doc)
+    sources = [meta.get('source', 'Sconosciuto') for meta in data['metadatas']]
+    hover_texts = ["<br>".join(textwrap.wrap(doc[:150], width=50)) + "..." for doc in data['documents']]
 
-    # 3. Creiamo un DataFrame Pandas (comodo per Plotly)
     df = pd.DataFrame({
         'X': embeddings_3d[:, 0],
         'Y': embeddings_3d[:, 1],
@@ -49,23 +39,17 @@ def visualize_3d_chroma():
         'Contenuto': hover_texts
     })
 
-    # 4. Generiamo il Grafico 3D
-    print("🌌 Generazione dell'universo 3D...")
     fig = px.scatter_3d(
         df, x='X', y='Y', z='Z',
-        color='File', # Colora i pallini in base al file di origine
+        color='File',
         hover_name='File',
         hover_data={'Contenuto': True, 'X': False, 'Y': False, 'Z': False},
         title="Mappa Semantica 3D del Second Brain",
-        opacity=0.8
+        template="plotly_dark" # Molto più figo da vedere
     )
-    
-    # Migliora lo stile visivo
-    fig.update_traces(marker=dict(size=8, line=dict(width=1, color='DarkSlateGrey')))
-    fig.update_layout(template="plotly_dark", margin=dict(l=0, r=0, b=0, t=40))
-    
-    # Mostra il grafico nel browser
-    fig.show()
 
-if __name__ == "__main__":
-    visualize_3d_chroma()
+    # --- LA MODIFICA È QUI ---
+    output_file = "/app/notes/brain_map.html"
+    fig.write_html(output_file)
+    print(f"\n✨ Mappa generata con successo!")
+    print(f"📂 Cerca il file 'brain_map.html' nella cartella 'notes' del tuo progetto Mac e aprilo col browser.")

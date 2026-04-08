@@ -12,13 +12,13 @@ from src.agents.core_agents import vision_agent, splitter_agent, researcher_agen
 warnings.filterwarnings("ignore", category=UserWarning)
 
 
-from src.database.vector_db import get_db, sync_deleted_notes
+from src.database.vector_db import get_db, sync_notes
 
 os.makedirs("inbox", exist_ok=True)
 os.makedirs("notes", exist_ok=True)
 
 print("🧹 Syncing Database con file locali...")
-sync_deleted_notes()
+sync_notes()
 
 # =======================================================================
 # FUNZIONI DI SUPPORTO PER IL DATABASE LOCALE
@@ -43,9 +43,17 @@ def retrieve_context(raw_text):
 
 def agent_librarian(filename, content, db):
     print(f"📚 Librarian: Indexing {filename} into the Vector DB...")
+    
+    # Cerca il percorso fisico del file per salvarne il timestamp di modifica (mtime)
+    file_path = os.path.join("inbox", filename)
+    if not os.path.exists(file_path):
+        file_path = os.path.join("notes", filename)
+        
+    mtime = os.path.getmtime(file_path) if os.path.exists(file_path) else 0
+    
     db.add(
         documents=[content],
-        metadatas=[{"source": filename}],
+        metadatas=[{"source": filename, "mtime": mtime}],
         ids=[str(uuid.uuid4())]
     )
 

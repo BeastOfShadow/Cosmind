@@ -4,6 +4,7 @@ import sys
 from src.pipeline.orchestrator import run_pipeline
 from src.agents.chat_agent import chat_with_brain
 from src.database.visualizer import visualize_3d_chroma
+from src.database.vector_db import sync_notes
 
 def menu():
     print("\n🧠 BENVENUTO NEL TUO SECOND BRAIN AI")
@@ -11,9 +12,10 @@ def menu():
     print("1. 📝 Processa note in Inbox (Orchestrator)")
     print("2. 💬 Chatta con le tue note (RAG)")
     print("3. 🌌 Visualizza Mappa 3D del Vault")
-    print("4. ❌ Esci")
+    print("4. 🔄 Sincronizza Database locale (Sync)")
+    print("5. ❌ Esci")
     
-    scelta = input("\nCosa vuoi fare? [1/2/3/4]: ")
+    scelta = input("\nCosa vuoi fare? [1/2/3/4/5]: ")
     return scelta
 
 def main():
@@ -41,6 +43,10 @@ def main():
             visualize_3d_chroma()
             
         elif scelta == '4':
+            print("\n🔄 Sincronizzazione del database in corso...")
+            sync_notes()
+            
+        elif scelta == '5':
             print("Uscita in corso... Ciao! 👋")
             sys.exit(0)
             
