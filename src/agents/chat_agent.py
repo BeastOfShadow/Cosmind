@@ -23,11 +23,18 @@ def chat_with_brain(user_query):
         
     # 3. Costruisci il Contesto
     docs = risultati['documents'][0]
-    fonti = [meta['source'] for meta in risultati['metadatas'][0]]
-    
+    metadatas = risultati['metadatas'][0]
     contesto_recuperato = ""
-    for d, f in zip(docs, fonti):
-        contesto_recuperato += f"\n\n--- FONTE: {f} ---\n{d}"
+    fonti_dettagliate = [] # Nuova lista per le fonti con il loro contenuto
+    
+    for d, meta in zip(docs, metadatas):
+        nome_fonte = meta['source']
+        contesto_recuperato += f"\n\n--- FONTE: {nome_fonte} ---\n{d}"
+        # Salviamo sia il nome che il pezzo di testo
+        fonti_dettagliate.append({
+            "source": nome_fonte,
+            "content": d
+        })
     
     print("🧠 Sto analizzando le tue note (Agno Agent)...")
     
@@ -50,26 +57,5 @@ def chat_with_brain(user_query):
     
     # 6. Restituisci o stampa la risposta
     answer = response.content.strip()
-    sources = list(set(fonti))
     
-    print("\n================ ANSWER ================\n")
-    print(answer)
-    print("\n========================================\n")
-    print(f"📚 Sources used: {', '.join(sources)}")
-    
-    return {"answer": answer, "sources": sources}
-
-if __name__ == "__main__":
-    import warnings
-    warnings.filterwarnings("ignore")
-    
-    print("🤖 Welcome to your Agno Second Brain Chat!")
-    while True:
-        try:
-            domanda = input("\nAsk a question (or type 'exit' to quit): ")
-            if domanda.lower() == 'exit':
-                break
-            if domanda.strip():
-                chat_with_brain(domanda)
-        except KeyboardInterrupt:
-            break
+    return {"answer": answer, "sources": fonti_dettagliate}

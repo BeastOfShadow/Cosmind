@@ -40,7 +40,7 @@ function ChatPage() {
   const [query, setQuery] = useState('');
   
   // AGGIUNTA 1: Abbiamo detto a React che i messaggi possono avere un array opzionale di "sources"
-  const [messages, setMessages] = useState<{role: 'user' | 'bot', content: string, sources?: string[]}[]>([]);
+  const [messages, setMessages] = useState<{role: 'user' | 'bot', content: string, sources?: {source: string, content: string}[]}[]>([]);
   const [loading, setLoading] = useState(false);
 
   const askBrain = async (e: React.FormEvent) => {
@@ -100,18 +100,28 @@ function ChatPage() {
             }`}>
               <div className="leading-relaxed whitespace-pre-wrap">{msg.content}</div>
               
-              {/* AGGIUNTA 3: Il box delle fonti che appare solo se ci sono fonti */}
+              {/* BOX DELLE FONTI A TENDINA */}
               {msg.role === 'bot' && msg.sources && msg.sources.length > 0 && (
                 <div className="mt-4 pt-3 border-t border-slate-700/50">
-                  <div className="flex items-center gap-2 mb-2">
+                  <div className="flex items-center gap-2 mb-3">
                     <Database size={12} className="text-slate-400" />
                     <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Fonti utilizzate:</span>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {msg.sources.map((source, idx) => (
-                      <span key={idx} className="flex items-center gap-1 text-xs bg-slate-900/50 text-indigo-300 px-2.5 py-1 rounded-md border border-slate-700/50 hover:border-indigo-500/50 hover:bg-slate-800 transition-colors cursor-default">
-                        {source}
-                      </span>
+                  <div className="flex flex-col gap-2">
+                    {msg.sources.map((src, idx) => (
+                      <details key={idx} className="group bg-slate-900/50 border border-slate-700/50 rounded-lg overflow-hidden">
+                        {/* INTESTAZIONE CLICCABILE */}
+                        <summary className="flex items-center gap-2 text-xs text-indigo-300 px-3 py-2 cursor-pointer hover:bg-slate-800 transition-colors list-none">
+                          <span className="w-4 h-4 flex items-center justify-center bg-slate-800 rounded transition-transform group-open:rotate-90">
+                            ▶
+                          </span>
+                          <span className="font-medium">{src.source}</span>
+                        </summary>
+                        {/* CONTENUTO ESPANSO */}
+                        <div className="px-4 py-3 text-xs text-slate-400 border-t border-slate-700/50 bg-slate-900/80 whitespace-pre-wrap leading-relaxed">
+                          {src.content}
+                        </div>
+                      </details>
                     ))}
                   </div>
                 </div>
