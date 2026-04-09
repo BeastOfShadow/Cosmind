@@ -9,3 +9,6 @@ agno
 plotly 
 scikit-learn 
 pandas
+fastapi
+uvicorn
+pydantic
