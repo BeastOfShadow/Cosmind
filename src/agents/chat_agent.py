@@ -14,12 +14,12 @@ def chat_with_brain(user_query):
     # 2. Fai la ricerca vettoriale (RAG - Retrieval)
     try:
         risultati = collection.query(query_texts=[user_query], n_results=3)
-        if not risultati['documents'] or not risultati['documents'][0]:
+        if not risultati.get('documents') or len(risultati['documents'][0]) == 0:
             print("⚠️ Nessuna nota trovata nel tuo database per questa ricerca.")
-            return
-    except Exception:
-        print("⚠️ Database vuoto o errore RAG.")
-        return
+            return {"answer": "Non ho trovato informazioni rilevanti nei tuoi appunti.", "sources": []}
+    except Exception as e:
+        print(f"⚠️ Errore RAG: {str(e)}") # Così se c'è un errore, vedi quale è!
+        return {"answer": "Errore durante la ricerca nel database.", "sources": []}
         
     # 3. Costruisci il Contesto
     docs = risultati['documents'][0]
@@ -48,11 +48,16 @@ def chat_with_brain(user_query):
     prompt = f"CONTESTO DAL VAULT:\n{contesto_recuperato}\n\nDOMANDA DELL'UTENTE:\n{user_query}"
     response = chat_agent.run(prompt)
     
-    # 6. Stampa il risultato
+    # 6. Restituisci o stampa la risposta
+    answer = response.content.strip()
+    sources = list(set(fonti))
+    
     print("\n================ ANSWER ================\n")
-    print(response.content.strip())
+    print(answer)
     print("\n========================================\n")
-    print(f"📚 Sources used: {', '.join(set(fonti))}")
+    print(f"📚 Sources used: {', '.join(sources)}")
+    
+    return {"answer": answer, "sources": sources}
 
 if __name__ == "__main__":
     import warnings

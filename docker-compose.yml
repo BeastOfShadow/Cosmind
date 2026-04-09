@@ -12,11 +12,27 @@ services:
       # Sincronizza i file in tempo reale senza dover ricostruire il docker
       - ./inbox:/app/inbox
       - ./notes:/app/notes
+      - ./raw_notes:/app/raw_notes
       - chroma_data:/app/.chroma_db
       - ./src:/app/src
       - ./main.py:/app/main.py
-    # Teniamo acceso il container per poter lanciare i comandi interattivamente via Docker exec
-    command: tail -f /dev/null
+    # Apri la porta per FastAPI
+    ports:
+      - "8000:8000"
+    # Avvia il server web FastAPI
+    command: uvicorn src.database.api.api:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    image: node:20-alpine
+    container_name: neural_network_frontend
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    ports:
+      - "5173:5173"
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    command: sh -c "npm install && npm run dev -- --host"
 
 volumes:
   chroma_data:

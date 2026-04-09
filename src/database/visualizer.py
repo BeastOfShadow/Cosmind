@@ -1,55 +1,80 @@
 import chromadb # type: ignore
-import pandas as pd # type: ignore
-import plotly.express as px # type: ignore
 from sklearn.decomposition import PCA # type: ignore
+from sklearn.manifold import TSNE # type: ignore
+from sklearn.metrics.pairwise import cosine_similarity # type: ignore
 import textwrap
-import os
 
-def visualize_3d_chroma():
-    print("🧠 Connessione al Second Brain (ChromaDB)...")
-    # Usa il percorso assoluto interno a Docker
+def get_3d_map_data():
+    print("🧠 Recupero dati dal Second Brain per Dashboard Analitica...")
     client = chromadb.PersistentClient(path="/app/.chroma_db")
     
     try:
         collection = client.get_collection(name="note_ricerca")
     except Exception:
-        print("❌ Collezione 'note_ricerca' non trovata. Hai già processato delle note?")
-        return
+        return {"error": "Collezione non trovata. Il database è vuoto."}
     
     data = collection.get(include=['embeddings', 'documents', 'metadatas'])
     embeddings = data.get('embeddings')
     
-    if embeddings is None or len(embeddings) == 0:
-        print("❌ Il database è vuoto. Non c'è nulla da visualizzare.")
-        return
+    if embeddings is None or len(embeddings) < 2:
+        return {"error": "Il database è vuoto o ha troppo pochi dati per generare grafici."}
         
-    print(f"✅ Note trovate: {len(embeddings)}. Elaborazione mappa 3D...")
+    # 1. Calcolo 3D (PCA) per la visualizzazione spaziale veloce
+    pca_3d = PCA(n_components=3)
+    emb_3d = pca_3d.fit_transform(embeddings)
     
-    pca = PCA(n_components=3)
-    embeddings_3d = pca.fit_transform(embeddings)
+    # 2. Calcolo 2D (t-SNE) per formare "isole" di concetti
+    # Gestiamo la perplexity in modo sicuro nel caso ci siano poche note
+    perplex = min(30, len(embeddings) - 1)
+    tsne_2d = TSNE(n_components=2, perplexity=perplex, random_state=42)
+    emb_2d = tsne_2d.fit_transform(embeddings)
+
+    # 3. Calcolo del Grafo di Conoscenza (Matrice di Somiglianza)
+    sim_matrix = cosine_similarity(embeddings)
     
-    sources = [meta.get('source', 'Sconosciuto') for meta in data['metadatas']]
-    hover_texts = ["<br>".join(textwrap.wrap(doc[:150], width=50)) + "..." for doc in data['documents']]
+    traces_3d = {}
+    traces_2d = {}
+    nodes = []
+    links = []
 
-    df = pd.DataFrame({
-        'X': embeddings_3d[:, 0],
-        'Y': embeddings_3d[:, 1],
-        'Z': embeddings_3d[:, 2],
-        'File': sources,
-        'Contenuto': hover_texts
-    })
+    # Popoliamo i nodi e le tracce spaziali
+    for i, meta in enumerate(data['metadatas']):
+        source = meta.get('source', 'Sconosciuto')
+        testo = data['documents'][i]
+        hover_text = "<br>".join(textwrap.wrap(testo[:100], width=40)) + "..."
+        
+        # Struttura per Mappa 3D
+        if source not in traces_3d:
+            traces_3d[source] = {"x": [], "y": [], "z": [], "texts": [], "name": source}
+        traces_3d[source]["x"].append(float(emb_3d[i, 0]))
+        traces_3d[source]["y"].append(float(emb_3d[i, 1]))
+        traces_3d[source]["z"].append(float(emb_3d[i, 2]))
+        traces_3d[source]["texts"].append(hover_text)
+        
+        # Struttura per Mappa 2D t-SNE
+        if source not in traces_2d:
+            traces_2d[source] = {"x": [], "y": [], "texts": [], "name": source}
+        traces_2d[source]["x"].append(float(emb_2d[i, 0]))
+        traces_2d[source]["y"].append(float(emb_2d[i, 1]))
+        traces_2d[source]["texts"].append(hover_text)
 
-    fig = px.scatter_3d(
-        df, x='X', y='Y', z='Z',
-        color='File',
-        hover_name='File',
-        hover_data={'Contenuto': True, 'X': False, 'Y': False, 'Z': False},
-        title="Mappa Semantica 3D del Second Brain",
-        template="plotly_dark" # Molto più figo da vedere
-    )
+        # Nodi per il Grafo
+        nodes.append({
+            "id": str(i),
+            "name": source,
+            "val": 1, # Dimensione del nodo
+            "preview": testo[:100] + "..."
+        })
 
-    # --- LA MODIFICA È QUI ---
-    output_file = "/app/notes/brain_map.html"
-    fig.write_html(output_file)
-    print(f"\n✨ Mappa generata con successo!")
-    print(f"📂 Cerca il file 'brain_map.html' nella cartella 'notes' del tuo progetto Mac e aprilo col browser.")
+    # Popoliamo i link del grafo: colleghiamo i nodi con somiglianza > 75%
+    for i in range(len(embeddings)):
+        for j in range(i + 1, len(embeddings)):
+            similarity = float(sim_matrix[i, j])
+            if similarity > 0.75: # Soglia di correlazione! Modificala per avere più o meno linee
+                links.append({"source": str(i), "target": str(j), "similarity": similarity})
+
+    return {
+        "traces3D": list(traces_3d.values()),
+        "traces2D": list(traces_2d.values()),
+        "graph": {"nodes": nodes, "links": links}
+    }

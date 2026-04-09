@@ -28,3 +28,11 @@ class ImageAnalysis(BaseModel):
     key_concepts: list[str] = Field(description="Elenco di tag o concetti presenti nell'immagine")
     extracted_text: str = Field(description="Testo estrapolato fisicamente dall'immagine")
     summary: str = Field(description="Un brevissimo riassunto di 2/3 righe utile ai fini della RAG")
+
+class NoteDraft(BaseModel):
+    title: str
+    content: str
+
+class NoteCreate(BaseModel):
+    title: str
+    content: str
