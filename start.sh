@@ -7,6 +7,8 @@ echo "========================================="
 echo "🧠 Avvio Sistema Neural Network"
 echo "========================================="
 
+docker-compose up -d --build
+
 # 1. Controllo strategia LLM (Cloud vs Locale)
 set -a
 [ -f .env ] && source .env

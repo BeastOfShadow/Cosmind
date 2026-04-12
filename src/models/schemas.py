@@ -4,19 +4,19 @@ from pydantic import BaseModel, Field # type: ignore
 # DEFINIZIONE CLASSI STRUTTURATE (PYDANTIC) -> NIENTE PIÙ JSON FRAGILI!
 # =======================================================================
 class NewNote(BaseModel):
-    filename: str = Field(description="Nome del file markdown completo, es. 'concept_name.md'")
-    title: str = Field(description="Titolo concettuale")
+    filename: str = Field(description="Nome del file markdown completo, usa sempre GLI SPAZI e MAI gli underscore. Es. 'concept name.md'")
+    title: str = Field(description="Titolo concettuale, usa spazi e non underscore")
     aliases: list[str] = Field(description="Alias e sinonimi per questo concetto")
     domain: str = Field(description="Dominio di macro categoria (es. backend, psychology, ai)")
     tldr: str = Field(description="Abstract brevissimo in massimo 2 righe")
-    body: str = Field(description="Corpo del testo, rielaborato. Rispetta lo stile e la voce dell'utente!")
+    body: str = Field(description="Corpo del testo estratto ESATTAMENTE dall'appunto originale. NON riassumere, NON parafrasare e NON alterare il testo dell'utente.")
     derives_from: list[str] = Field(description="Concetti base da cui deriva")
     leads_to: list[str] = Field(description="Concetti avanzati verso cui porta")
     similar_to: list[str] = Field(description="Concetti trasversali affini")
 
 class NoteUpdate(BaseModel):
-    filename: str = Field(description="Il nome esatto del file da aggiornare (es. api_rest.md)")
-    content_to_add: str = Field(description="Il testo esatto da appendere in fondo al file")
+    filename: str = Field(description="Il nome esatto del file da aggiornare. Usa spazi e non underscore (es. api rest.md)")
+    content_to_add: str = Field(description="Il testo esatto dall'appunto originale da appendere in fondo al file. NON alterare il testo.")
 
 class ExtractionResult(BaseModel):
     new_notes: list[NewNote] = Field(default=[], description="Lista di note atomiche estratte dall'utente")
@@ -36,3 +36,7 @@ class NoteDraft(BaseModel):
 class NoteCreate(BaseModel):
     title: str
     content: str
+
+class EditorAIRequest(BaseModel):
+    text: str
+    action: str

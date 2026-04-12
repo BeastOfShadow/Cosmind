@@ -49,7 +49,7 @@ def get_3d_map_data():
         traces_3d[source]["x"].append(float(emb_3d[i, 0]))
         traces_3d[source]["y"].append(float(emb_3d[i, 1]))
         traces_3d[source]["z"].append(float(emb_3d[i, 2]))
-        traces_3d[source]["texts"].append(hover_text)
+        traces_3d[source]["texts"].append(source)
         
         # Struttura per Mappa 2D t-SNE
         if source not in traces_2d:

@@ -15,10 +15,11 @@ splitter_agent = Agent(
     output_schema=ExtractionResult,
     instructions=[
         "Riceverai gli appunti grezzi dell'utente e il contesto preesistente nel Vault.",
-        "Se l'utente parla di concetti del tutto nuovi, definisci oggetti 'NewNote'.",
-        "Assicurati che i filename e i title contengano nomi validi e parlanti.",
-        "Il campo body DEVE contenere il succo di tutto, rispettando il tone of voice dell'utente.",
-        "Genera un output fedele allo schema."
+        "Dividi rigorosamente il testo in Note Atomiche (un solo concetto chiave per nota). Se un concetto esiste già nel contesto fornito, genera un aggiornamento nel campo updates.",
+        "IL TESTO DELL'UTENTE È SACRO. Non riassumere, non allucinare e non tradurre/alterare il testo. Devi solo ritagliarlo e inserirlo intatto nel body o in content_to_add.",
+        "ATTENZIONE ALLA NOMENCLATURA: filename e title devono USARE SEMPRE E SOLO SPAZI. NESSUN UNDERSCORE! Es: 'La mia prima nota.md' e MAI 'La_mia_prima_nota.md'.",
+        "Se l'utente ha incluso immagini (es: ![alt](assets/img.png)), IL TAG DEVE ESSERE INSERITO INVARIATO ED ESATTO nell'output.",
+        "Genera un output fedele allo schema e alle direttive imposte."
     ]
 )
 

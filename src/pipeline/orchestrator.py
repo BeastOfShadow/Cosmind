@@ -86,35 +86,42 @@ def process_image(filepath, db):
         print(f"❌ Errore processamento immagine {filepath}: {e}")
 
 def extract_and_solve_embedded_images(content, db):
-    regex = r'!\[\[(.*?\.(?:png|jpg|jpeg|gif|webp))\]\]'
-    matches = re.findall(regex, content, re.IGNORECASE)
+    # Supporta sia il formato standard markdown ![alt](path) che i wikilink ![[path]]
+    regex_wiki = r'!\[\[(.*?\.(?:png|jpg|jpeg|gif|webp))\]\]'
+    regex_md = r'!\[.*?\]\((.*?\.(?:png|jpg|jpeg|gif|webp))\)'
+    
+    matches_wiki = re.findall(regex_wiki, content, re.IGNORECASE)
+    matches_md = re.findall(regex_md, content, re.IGNORECASE)
+    matches = set(matches_wiki + matches_md)
     
     for match in matches:
-        print(f"🔍 [Embedded Vision Agent] Immagine inline trovata: ![[{match}]]")
-        search_pattern = f"**/{unquote(match)}"
+        # Recupera solo il nome del file dall'eventuale path completo
+        image_name = os.path.basename(match)
+        print(f"🔍 [Embedded Vision Agent] Immagine inline trovata: {image_name}")
+        search_pattern = f"**/{unquote(image_name)}"
         found_files = glob.glob(search_pattern, recursive=True)
         
         if found_files:
             image_path = found_files[0]
-            print(f"✅ Ritrovata: {image_path}")
+            print(f"✅ Ritrovata per indicizzazione: {image_path}")
             try:
                  response = vision_agent.run("Fornisci summary per la ricerca RAG dell'immagine.", images=[image_path])
                  result: ImageAnalysis = response.content
                  
                  print(f"👁️ Immagine tradotta in: {result.summary[:50]}...")
                  
-                 content = content.replace(f"![[{match}]]", f"![[{match}]]\n\n> [Vision Analysis]: {result.summary}")
-                 
+                 # INSERISCI SOLO NEL DB PER LA RICERCA, NON ALTERARE IL MARKDOWN ORIGINALE
                  db.add(
                     documents=[result.summary],
                     metadatas=[{"source": match, "type": "embedded_image"}],
-                    ids=[f"embedded_{match}_analysis"]
+                    ids=[f"embedded_{image_name}_analysis"]
                  )
             except Exception as e:
                  print(f"❌ Errore Analisi Immagine Embedded: {e}")
         else:
-             print(f"❌ Errore: File immagine non trovato nel Vault: {match}")
+             print(f"❌ Errore: File immagine non trovato nel Vault: {image_name}")
             
+    # IL TESTO ORIGINALE È SACRO - Ritorniamo il content identico senza mutare i tag Markdown
     return content
 
 # =======================================================================
@@ -153,51 +160,36 @@ def run_pipeline(raw_note_path):
     print("💾 Python Formatter & Researchers: Generazione delle Atomic Notes...")
     
     for i, note in enumerate(extracted_data.new_notes):
-        print(f"   => Elaborazione approfondita per '{note.title}'")
+        # Sanitizzazione rigorosa per filename e titolo (sostituisci _ con spazio)
+        safe_title = note.title.replace("_", " ").strip()
+        safe_filename = note.filename.replace("_", " ").strip()
+        if not safe_filename.endswith('.md'): safe_filename += '.md'
         
-        research_response = researcher_agent.run(f"Cerca approfondimenti tecnici o documenti per il concetto '{note.title}' (dominio: {note.domain})")
-        scraped_context = research_response.content
+        print(f"   => Salvataggio Atomic Note '{safe_title}'")
         
-        write_prompt = f"""Sei un Technical Writer esperto. Riscrivi ed espandi l'appunto dell'utente.
+        # Testo sacro, saltiamo l'alterazione del writer_agent
+        expanded_body = note.body.strip()
         
-        REGOLA CRITICA E ASSOLUTA: Questo concetto appartiene strettamente al dominio: '{note.domain}'. 
-        Se la ricerca web parla di argomenti fuori da questo dominio (es. filosofia, grammatica, dibattiti sociali, forum in altre lingue), IGNORALA COMPLETAMENTE.
-        Usa la ricerca web SOLO se aggiunge valore tecnico e accademico all'appunto dell'utente.
-        Restituisci solo il Markdown pulito, senza presentazioni.
+        # La ricerca avviene solo se si vuole conservare i link (che potresti voler disattivare, 
+        # ma possiamo ometterli se il testo deve essere 100% puro. Lasciamo web search out dal body).
         
-        TESTO GREZZO DELL'UTENTE:
-        {note.body}
-        
-        RICERCA WEB UTILE:
-        {scraped_context}
-        """
-        try:
-            writer_response = writer_agent.run(write_prompt)
-            expanded_body = writer_response.content.strip()
-        except:
-            expanded_body = note.body
-            
         derives = ", ".join([f"[[{x}]]" for x in note.derives_from])
         leads = ", ".join([f"[[{x}]]" for x in note.leads_to])
         similar = ", ".join([f"[[{x}]]" for x in note.similar_to])
         aliases = ", ".join([f'"{x}"' for x in note.aliases])
         
-        markdown_content = f"---\nid: {id_univoco}\naliases: [{aliases}]\ntags:\n  - status/1-draft\n  - domain/{note.domain}\ncreated: {data_str}\nmodified: {data_str}\n---\n\n# 📌 {note.title}\n\n## 🧠 TL;DR\n> [!summary] Abstract\n> {note.tldr}\n\n---\n\n## 📝 Body\n{expanded_body}\n\n---\n\n## 🔗 Knowledge Graph\n- **Derives from:** {derives}\n- **Leads to:** {leads}\n- **Similar:** {similar}\n\n## 📚 Sources\n- User Notes & Agent Web Search\n"
+        markdown_content = f"---\nid: {id_univoco}\naliases: [{aliases}]\ntags:\n  - status/1-draft\n  - domain/{note.domain}\ncreated: {data_str}\nmodified: {data_str}\n---\n\n# 📌 {safe_title}\n\n## 🧠 TL;DR\n> [!summary] Abstract\n> {note.tldr}\n\n---\n\n## 📝 Body\n{expanded_body}\n\n---\n\n## 🔗 Knowledge Graph\n- **Derives from:** {derives}\n- **Leads to:** {leads}\n- **Similar:** {similar}\n\n## 📚 Sources\n- User Source Note\n"
         
-        # FIX: Assicurati che l'estensione .md sia sempre presente
-        note_filename = note.filename.strip()
-        if not note_filename.endswith('.md'):
-            note_filename += '.md'
-            
-        file_path = os.path.join("inbox", note_filename)
+        file_path = os.path.join("inbox", safe_filename)
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(markdown_content)
         
-        print(f"   -> 🆕 Salvata nota finale: {note_filename}")
-        agent_librarian(note_filename, markdown_content, db)
+        print(f"   -> 🆕 Salvata nota finale: {safe_filename}")
+        agent_librarian(safe_filename, markdown_content, db)
         
     for update in extracted_data.updates:
-        fname = update.filename.strip()
+        # Sanitizzazione anche per gli Updates
+        fname = update.filename.replace("_", " ").strip()
         if not fname.endswith('.md'):
             fname += '.md'
         content = update.content_to_add.strip()
@@ -207,10 +199,13 @@ def run_pipeline(raw_note_path):
             print(f"   -> ⏭️ Skipped ghost update: '{fname}'")
             continue
             
+        # Modalità APPEND: aggiunge il file a inbox/ o tenta di prenderlo da notes/ (se l'utente aggiorna note preesistenti)
+        # Qui potremmo creare un file UPDATE_ in modo che l'utente approvi l'append, o accodarlo direttamente. 
+        # Modifichiamo semplicemente in modo sicuro.
         file_path = os.path.join("inbox", f"UPDATE_{fname}")
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        print(f"   -> 🔄 Update salvato per: {fname}")
+        with open(file_path, "a", encoding="utf-8") as f:
+            f.write(f"\n\n## Update {data_str}\n{content}\n")
+        print(f"   -> 🔄 Update (Append) salvato per: {fname}")
 
     if extracted_data.new_notes:
         print("📑 Lecturer Agent: Generazione MOC riassuntiva...")
