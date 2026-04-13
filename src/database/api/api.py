@@ -14,7 +14,7 @@ from src.config.llm_manager import get_llm_model
 # Importiamo dai nostri moduli puliti
 from src.models.schemas import EditorAIRequest, NoteCreate
 from src.pipeline.orchestrator import run_pipeline
-from src.agents.chat_agent import chat_with_brain
+from src.agents.chat_agent import chat_with_brain, chat_with_web
 from src.database.visualizer import get_3d_map_data
 from src.database.vector_db import sync_notes
 
@@ -46,6 +46,17 @@ def chat(request: ChatRequest):
         response = chat_with_brain(request.query)
         if not response:
             return {"answer": "Errore interno durante la RAG", "sources": []}
+        return response
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/chat/web-search")
+def chat_web(request: ChatRequest):
+    """Esegue una query sul web usando l'agente delegato"""
+    try:
+        response = chat_with_web(request.query)
+        if not response:
+            return {"answer": "Errore interno durante la ricerca web", "sources": []}
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

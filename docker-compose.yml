@@ -10,6 +10,7 @@ services:
       - .env
     volumes:
       # Sincronizza i file in tempo reale senza dover ricostruire il docker
+      - ./assets:/app/assets
       - ./inbox:/app/inbox
       - ./notes:/app/notes
       - ./raw_notes:/app/raw_notes
