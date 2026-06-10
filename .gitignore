@@ -1,4 +1,35 @@
-.chroma_db/
-/__pycache__
+# Secrets / local config
 .env
-/.obsidian
+
+# Vector DB (persistent, machine-local)
+.chroma_db/
+
+# Editor / workspace
+.obsidian/
+.vscode/
+.idea/
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+
+# Generated artifacts
+brain_map.html
+
+# Private vault content — keep folder structure + demo note, ignore real notes
+inbox/*
+notes/*
+raw_notes/*
+!**/.gitkeep
+!raw_notes/example-*.md
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/node_modules/

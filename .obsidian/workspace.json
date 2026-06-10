@@ -4,17 +4,17 @@
     "type": "split",
     "children": [
       {
-        "id": "3697556f1e9e374b",
+        "id": "813e38bfc9e8623e",
         "type": "tabs",
         "children": [
           {
-            "id": "bb936ec49334f442",
+            "id": "b937b4ec4dcc1230",
             "type": "leaf",
             "state": {
               "type": "graph",
               "state": {},
               "icon": "lucide-git-fork",
-              "title": "Graph view"
+              "title": "Vista grafo"
             }
           }
         ]
@@ -40,7 +40,7 @@
                 "autoReveal": false
               },
               "icon": "lucide-folder-closed",
-              "title": "Files"
+              "title": "Esplora risorse"
             }
           },
           {
@@ -153,61 +153,62 @@
   },
   "left-ribbon": {
     "hiddenItems": {
-      "switcher:Open quick switcher": false,
-      "graph:Open graph view": false,
-      "canvas:Create new canvas": false,
-      "daily-notes:Open today's daily note": false,
-      "templates:Insert template": false,
-      "command-palette:Open command palette": false
+      "switcher:Apri selezione rapida": false,
+      "graph:Apri vista grafo": false,
+      "canvas:Crea nuova lavagna": false,
+      "daily-notes:Apri nota del giorno": false,
+      "templates:Inserisci modello": false,
+      "command-palette:Apri riquadro comandi": false,
+      "bases:Crea nuova Base": false
     }
   },
-  "active": "bb936ec49334f442",
+  "active": "b937b4ec4dcc1230",
   "lastOpenFiles": [
-    "inbox/Introducing-Cargo.md",
-    "inbox/Rust-Ownership.md",
+    "inbox/FIFO Multicast.md",
+    "frontend/node_modules/@rolldown/binding-linux-s390x-gnu",
     "inbox/LIT_test_rag.md",
-    "Untitled.canvas",
-    "note_template.md",
-    "notes",
+    "inbox/Multicast nei sistemi distribuiti.md",
     "raw_notes/test_rag.md",
-    "raw_notes",
-    "run.sh",
-    "main.py",
-    "src/pipeline/orchestrator.py",
-    "src/pipeline/brain_orchestrator.py",
-    "src/pipeline/__init__.py",
-    "src/pipeline",
-    "src/database/visualizer.py",
-    "src/database/visualize_brain.py",
-    "notes/test_rag.md",
-    "inbox/rust-ownership-model.md",
-    "inbox/introduction-to-cargo.md",
-    "rust-ownership-model.md",
-    "inbox/introduzione-sistemi-operativi.md",
-    "inbox/0 Introduzione/Untitled 1.png",
-    "inbox/0 Introduzione/Untitled.png",
-    "inbox/0 Introduzione/Untitled 6.png",
-    "inbox/0 Introduzione/Untitled 5.png",
-    "inbox/0 Introduzione/Untitled 4.png",
-    "inbox/0 Introduzione/Untitled 3.png",
-    "inbox/0 Introduzione/Untitled 2.png",
-    "inbox/Private & Shared/0 Introduzione/Untitled.png",
-    "inbox/Private & Shared/0 Introduzione/Untitled 6.png",
-    "inbox/Private & Shared/0 Introduzione/Untitled 5.png",
-    "inbox/Private & Shared/0 Introduzione 7569ca8e994f481c97721c607f7fe190.md",
-    "notes/test_image.md",
-    "inbox/rust_ownership_model.md",
-    "inbox/rust_cargo.md",
-    "inbox/cargo.md",
-    "inbox/ownership_model.md",
-    "inbox/UPDATE_concept_name.md",
-    "inbox/new_note_0.md",
-    "inbox/Ownership.md",
-    "inbox/Ownership model.md",
-    "inbox/cargo_tool.md",
-    "inbox/ownership_rust.md",
-    "inbox/UPDATE_existing_note.md",
-    "inbox/UPDATE_cargo_tool.md",
-    "inbox/BuildSystem.md"
+    "inbox/Causal Multicast.md",
+    "inbox/Casual-Total Order Multicast.md",
+    "inbox/FIFO-Total Order Multicast.md",
+    "inbox/Total Order Multicast.md",
+    "inbox/_FIFO_total_order_multicast.md",
+    "inbox/_Causal_multicast.md",
+    "inbox/_FIFO_multicast.md",
+    "inbox/_Causal_total_order_multicast.md",
+    "inbox/_Total_order_multicast.md",
+    "inbox/_multicast_in_distributed_systems.md",
+    "notes/assets/img_1775835741_d495a655.png",
+    "raw_notes/senza_titolo.md",
+    "notes/assets/img_1775835221_2ea15cbb.png",
+    "notes/assets/img_1775835108_bbd549af.png",
+    "notes/assets/img_1775834971_1658f24c.png",
+    "notes/assets/img_1775834874_885b950a.png",
+    "notes/assets/img_1775834094_f4414dc1.png",
+    "raw_notes/guazzone.md",
+    "notes/assets/img_1775813941_ce60e863.png",
+    "notes/assets/img_1775813618_9d135938.png",
+    "assets",
+    "notes/assets/img_1775813320_f231f526.pdf",
+    "notes/assets/img_1775813269_7e7ed3e9.png",
+    "notes/assets/img_1775813191_74bb363c.pdf",
+    "notes/assets/img_1775813136_c0777387.png",
+    "frontend/node_modules/lightningcss-win32-x64-msvc",
+    "frontend/node_modules/lightningcss-win32-arm64-msvc",
+    "frontend/node_modules/@tailwindcss/oxide-android-arm64",
+    "frontend/node_modules/@rolldown/binding-linux-arm-gnueabihf",
+    "frontend/node_modules/lightningcss-linux-x64-musl",
+    "frontend/node_modules/@tailwindcss/oxide-wasm32-wasi",
+    "frontend/node_modules/cssesc/README.md",
+    "frontend/node_modules/postcss-selector-parser/README.md",
+    "frontend/node_modules/postcss-selector-parser/CHANGELOG.md",
+    "frontend/node_modules/postcss-selector-parser/API.md",
+    "frontend/node_modules/@tailwindcss/typography/README.md",
+    "frontend/node_modules/mdast-util-to-hast/readme.md",
+    "frontend/node_modules/react-markdown/readme.md",
+    "frontend/node_modules/html-url-attributes/readme.md",
+    "frontend/node_modules/property-information/readme.md",
+    "Untitled.canvas"
   ]
 }
