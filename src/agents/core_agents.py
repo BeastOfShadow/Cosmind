@@ -65,7 +65,7 @@ vision_agent = Agent(
     model=get_llm_model(vision=True),
     output_schema=ImageAnalysis,
     instructions=[
-        "Sei gli occhi del Second Brain.",
+        "Sei gli occhi del Cosmind.",
         "Analizza l'immagine fornita estraendone testo, significato e contesto generale.",
         "Restituisci l'oggetto strutturato con i campi richiesti in modo che l'Orchestratore possa indicizzare la conoscenza."
     ]

@@ -130,7 +130,7 @@ function ChatPage() {
           <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-4">
             <Bot size={48} className="text-indigo-500/50" />
             <p className="text-lg text-center">
-              Ask your Second Brain a question.
+              Ask Cosmind a question.
               <br />
               <span className="text-sm">
                 It will answer using only your notes.
@@ -1023,7 +1023,7 @@ function Layout({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen bg-slate-900 text-slate-100 font-sans overflow-hidden">
       <div className="w-64 bg-slate-950 p-4 flex flex-col border-r border-slate-800 flex-shrink-0">
         <h1 className="text-xl font-bold mb-8 text-center text-indigo-400">
-          🧠 Second Brain
+          🧠 Cosmind
         </h1>
         <nav className="flex flex-col gap-2 mb-10">
           <Link to="/" className={navClass("/")}>

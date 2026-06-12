@@ -1,11 +1,69 @@
+import os
 import chromadb # type: ignore
 from sklearn.decomposition import PCA # type: ignore
 from sklearn.manifold import TSNE # type: ignore
 from sklearn.metrics.pairwise import cosine_similarity # type: ignore
 import textwrap
 
+CHROMA_PATH = "/app/.chroma_db"
+
+
+def visualize_3d_chroma():
+    """CLI helper: build a 3D PCA map of the vault and export it as a
+    standalone HTML file (works inside the Docker container, where no
+    browser is available). The web UI /map page is the interactive viewer."""
+    import pandas as pd  # type: ignore
+    import plotly.express as px  # type: ignore
+
+    print("🧠 Connecting to the Cosmind (ChromaDB)...")
+    client = chromadb.PersistentClient(path=CHROMA_PATH)
+    try:
+        collection = client.get_collection(name="note_ricerca")
+    except Exception:
+        print("❌ Collection not found. The database is empty.")
+        return
+
+    data = collection.get(include=['embeddings', 'documents', 'metadatas'])
+    embeddings = data.get('embeddings')
+    if embeddings is None or len(embeddings) < 2:
+        print("❌ Not enough vectorized notes to build a 3D map (need at least 2).")
+        return
+
+    print(f"✅ Found {len(embeddings)} vectorized notes. Compressing to 3D (PCA)...")
+    emb_3d = PCA(n_components=3).fit_transform(embeddings)
+
+    sources, hover_texts = [], []
+    for i in range(len(embeddings)):
+        meta = data['metadatas'][i]
+        sources.append(meta.get('source', 'Unknown') if meta else 'Unknown')
+        doc = data['documents'][i]
+        hover_texts.append("<br>".join(textwrap.wrap(doc[:150], width=50)) + "...")
+
+    df = pd.DataFrame({
+        'X': emb_3d[:, 0], 'Y': emb_3d[:, 1], 'Z': emb_3d[:, 2],
+        'File': sources, 'Content': hover_texts,
+    })
+
+    print("🌌 Generating the 3D universe...")
+    fig = px.scatter_3d(
+        df, x='X', y='Y', z='Z',
+        color='File', hover_name='File',
+        hover_data={'Content': True, 'X': False, 'Y': False, 'Z': False},
+        title="3D Semantic Map of the Cosmind", opacity=0.8,
+    )
+    fig.update_traces(marker=dict(size=8, line=dict(width=1, color='DarkSlateGrey')))
+    fig.update_layout(template="plotly_dark", margin=dict(l=0, r=0, b=0, t=40))
+
+    out_dir = "/app/notes" if os.path.exists("/app/notes") else "notes"
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, "3d_map.html")
+    fig.write_html(out_path)
+    print(f"✅ 3D map exported to {out_path} — open it in your browser.")
+    print("   (Or use the interactive /map page in the web UI at http://localhost:5173)")
+
+
 def get_3d_map_data():
-    print("🧠 Retrieving data from the Second Brain for the Analytics Dashboard...")
+    print("🧠 Retrieving data from the Cosmind for the Analytics Dashboard...")
     client = chromadb.PersistentClient(path="/app/.chroma_db")
 
     try:

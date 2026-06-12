@@ -8,7 +8,7 @@ from src.tools.web_scraper import read_webpage # type: ignore
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:14b")
 
 def chat_with_brain(user_query):
-    print(f"\n🔍 Searching the Second Brain for: '{user_query}'...")
+    print(f"\n🔍 Searching the Cosmind for: '{user_query}'...")
     
     # 1. Connect to the local Database
     collection = get_db()
@@ -46,11 +46,11 @@ def chat_with_brain(user_query):
 
     # 4. Create the Agno Agent for the chat
     chat_agent = Agent(
-        name="Second Brain Assistant",
+        name="Cosmind Assistant",
         role="Studente Universitario Assistente",
         model=get_llm_model(),
         instructions=[
-            "Sei un assistente brillante collegato al Second Brain dell'utente.",
+            "Sei un assistente brillante collegato al Cosmind dell'utente.",
             "Rispondi alle domande basandoti ESCLUSIVAMENTE sul contesto fornito.",
             "Se la risposta NON è nel contesto, rispondi ESATTAMENTE con la stringa 'REQUIRE_WEB_SEARCH'. Non aggiungere altro.",
             "Non inventare risposte e non usare conoscenze esterne."

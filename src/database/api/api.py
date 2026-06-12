@@ -18,7 +18,7 @@ from src.agents.chat_agent import chat_with_brain, chat_with_web
 from src.database.visualizer import get_3d_map_data
 from src.database.vector_db import sync_notes
 
-app = FastAPI(title="Neural Network Second Brain API", description="API for the RAG agent and the notes vault")
+app = FastAPI(title="Neural Network Cosmind API", description="API for the RAG agent and the notes vault")
 
 # CORS configuration to allow the React frontend (Vite) to communicate with the backend
 app.add_middleware(
@@ -37,7 +37,7 @@ class ChatRequest(BaseModel):
 
 @app.get("/")
 def read_root():
-    return {"message": "Second Brain API is running"}
+    return {"message": "Cosmind API is running"}
 
 @app.post("/api/chat")
 def chat(request: ChatRequest):

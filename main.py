@@ -7,7 +7,7 @@ from src.database.visualizer import visualize_3d_chroma
 from src.database.vector_db import sync_notes
 
 def menu():
-    print("\n🧠 WELCOME TO YOUR SECOND BRAIN AI")
+    print("\n🧠 WELCOME TO COSMIND")
     print("====================================")
     print("1. 📝 Process notes in Inbox (Orchestrator)")
     print("2. 💬 Chat with your notes (RAG)")
