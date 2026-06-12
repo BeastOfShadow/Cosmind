@@ -2,34 +2,34 @@ import chromadb # type: ignore
 import os
 
 def get_db():
-    # Usiamo il percorso assoluto interno al container Docker
-    # Questo garantisce che non ci siano errori di cartelle non trovate
+    # We use the absolute path inside the Docker container
+    # This ensures there are no folder-not-found errors
     db_path = "/app/.chroma_db"
-    
-    # Inizializza il client persistente
+
+    # Initialize the persistent client
     client = chromadb.PersistentClient(path=db_path)
-    # Crea o recupera la collezione
+    # Create or retrieve the collection
     collection = client.get_or_create_collection(name="note_ricerca")
     return collection
 
 def sync_notes():
     """
-    Sincronizza il database (ChromaDB) con le cartelle fisiche:
-    1. Rimuove le note eliminate su disco.
-    2. Aggiunge le nuove note create su disco.
-    3. Aggiorna le note modificate su disco.
+    Syncs the database (ChromaDB) with the physical folders:
+    1. Removes notes deleted on disk.
+    2. Adds new notes created on disk.
+    3. Updates notes modified on disk.
     """
     import uuid
     import time
-    
+
     collection = get_db()
-    
-    # 1. Ottieni i dati attualmente nel DB
+
+    # 1. Get the data currently in the DB
     db_data = collection.get()
     db_metadatas = db_data.get("metadatas", [])
     db_ids = db_data.get("ids", [])
-    
-    # Mappiamo i source_file presenti nel DB con i loro ID e mtime
+
+    # Map the source_files present in the DB with their IDs and mtime
     # source_file -> {"ids": [...], "mtime": ...}
     db_files = {}
     for i, meta in enumerate(db_metadatas):
@@ -38,13 +38,13 @@ def sync_notes():
             if source not in db_files:
                 db_files[source] = {"ids": [], "mtime": meta.get("mtime", 0)}
             db_files[source]["ids"].append(db_ids[i])
-            
-            # Se la nota ha più chunk, teniamo il mtime più recente trovato
+
+            # If the note has multiple chunks, keep the most recent mtime found
             current_mtime = meta.get("mtime", 0)
             if current_mtime > db_files[source]["mtime"]:
                 db_files[source]["mtime"] = current_mtime
 
-    # 2. Scansiona le cartelle fisiche
+    # 2. Scan the physical folders
     existing_files = {}
     target_dirs = ["/app/notes", "/app/inbox"]
     
@@ -61,57 +61,57 @@ def sync_notes():
                         "mtime": mtime
                     }
 
-    # 3. Elimina le note che non esistono più su disco
+    # 3. Delete the notes that no longer exist on disk
     ids_to_delete = []
     deleted_files = set()
     for source, data in db_files.items():
         if source not in existing_files:
             ids_to_delete.extend(data["ids"])
             deleted_files.add(source)
-            
+
     if ids_to_delete:
         collection.delete(ids=ids_to_delete)
-        print(f"🗑️ Sync: Rimossi {len(deleted_files)} file non più presenti su disco.")
+        print(f"🗑️ Sync: Removed {len(deleted_files)} files no longer present on disk.")
 
-    # 4. Aggiungi le note nuove e aggiorna quelle modificate
+    # 4. Add the new notes and update the modified ones
     added_count = 0
     updated_count = 0
-    
+
     for file, data in existing_files.items():
         is_new = file not in db_files
-        # Aggiorniamo se il file su disco è più recente rispetto all'ultima sincronizzazione nel DB.
-        # Spesso c'è una piccola discrepanza di float, usiamo una tolleranza di 1 secondo.
+        # We update if the file on disk is more recent than the last sync in the DB.
+        # There is often a small float discrepancy, so we use a tolerance of 1 second.
         is_updated = not is_new and data["mtime"] > db_files[file]["mtime"] + 1.0
-        
+
         if is_new or is_updated:
-            # Se è un aggiornamento, prima eliminiamo i vecchi id dal DB
+            # If it's an update, first delete the old ids from the DB
             if is_updated:
                 collection.delete(ids=db_files[file]["ids"])
                 updated_count += 1
             else:
                 added_count += 1
-                
-            # Leggiamo il contenuto e lo inseriamo nel DB
+
+            # Read the content and insert it into the DB
             try:
                 with open(data["path"], 'r', encoding="utf-8") as f:
                     content = f.read()
-                
-                # Attenzione: Questo è un inserimento grezzo "document level". 
-                # Se i file sono molto lunghi dovresti chunkarli prima.
+
+                # Note: This is a raw "document level" insertion.
+                # If the files are very long you should chunk them first.
                 collection.add(
                     documents=[content],
                     metadatas=[{"source": file, "mtime": data["mtime"]}],
                     ids=[str(uuid.uuid4())]
                 )
             except Exception as e:
-                print(f"❌ Errore durante la sincronizzazione di {file}: {e}")
+                print(f"❌ Error while syncing {file}: {e}")
 
-    # Output del risultato
+    # Output the result
     if added_count == 0 and updated_count == 0 and not ids_to_delete:
-        print("✅ Nessuna nuova nota da sincronizzare. Il database è aggiornato.")
+        print("✅ No new notes to sync. The database is up to date.")
     else:
-        print(f"✅ Sync completo! Nuove: {added_count}, Aggiornate: {updated_count}, Eliminate: {len(deleted_files)}")
+        print(f"✅ Sync complete! New: {added_count}, Updated: {updated_count}, Deleted: {len(deleted_files)}")
 
 if __name__ == "__main__":
     coll = get_db()
-    print(f"✅ Connessione stabilita. Note presenti: {coll.count()}")
+    print(f"✅ Connection established. Notes present: {coll.count()}")

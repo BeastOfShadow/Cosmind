@@ -17,11 +17,11 @@ from src.database.vector_db import get_db, sync_notes
 os.makedirs("inbox", exist_ok=True)
 os.makedirs("notes", exist_ok=True)
 
-print("🧹 Syncing Database con file locali...")
+print("🧹 Syncing database with local files...")
 sync_notes()
 
 # =======================================================================
-# FUNZIONI DI SUPPORTO PER IL DATABASE LOCALE
+# SUPPORT FUNCTIONS FOR THE LOCAL DATABASE
 # =======================================================================
 
 def retrieve_context(raw_text):
@@ -43,8 +43,8 @@ def retrieve_context(raw_text):
 
 def agent_librarian(filename, content, db):
     print(f"📚 Librarian: Indexing {filename} into the Vector DB...")
-    
-    # Cerca il percorso fisico del file per salvarne il timestamp di modifica (mtime)
+
+    # Look up the physical path of the file to save its modification timestamp (mtime)
     file_path = os.path.join("inbox", filename)
     if not os.path.exists(file_path):
         file_path = os.path.join("notes", filename)
@@ -58,11 +58,11 @@ def agent_librarian(filename, content, db):
     )
 
 # =======================================================================
-# TRATTAMENTO IMMAGINI
+# IMAGE PROCESSING
 # =======================================================================
 
 def process_image(filepath, db):
-    print(f"\n📸 [Vision Agent] Analisi immagine autonoma: {filepath}")
+    print(f"\n📸 [Vision Agent] Standalone image analysis: {filepath}")
     try:
         response = vision_agent.run("Analizza l'immagine nel dettaglio.", images=[filepath])
         result: ImageAnalysis = response.content
@@ -80,13 +80,13 @@ def process_image(filepath, db):
             metadatas=[{"source": note_name, "type": "image_analysis"}],
             ids=[f"{base_name}_analysis"]
         )
-        print(f"✅ Immagine processata e salvata: {note_name}")
-        
+        print(f"✅ Image processed and saved: {note_name}")
+
     except Exception as e:
-        print(f"❌ Errore processamento immagine {filepath}: {e}")
+        print(f"❌ Image processing error {filepath}: {e}")
 
 def extract_and_solve_embedded_images(content, db):
-    # Supporta sia il formato standard markdown ![alt](path) che i wikilink ![[path]]
+    # Supports both the standard markdown format ![alt](path) and wikilinks ![[path]]
     regex_wiki = r'!\[\[(.*?\.(?:png|jpg|jpeg|gif|webp))\]\]'
     regex_md = r'!\[.*?\]\((.*?\.(?:png|jpg|jpeg|gif|webp))\)'
     
@@ -95,37 +95,37 @@ def extract_and_solve_embedded_images(content, db):
     matches = set(matches_wiki + matches_md)
     
     for match in matches:
-        # Recupera solo il nome del file dall'eventuale path completo
+        # Get only the file name from the possible full path
         image_name = os.path.basename(match)
-        print(f"🔍 [Embedded Vision Agent] Immagine inline trovata: {image_name}")
+        print(f"🔍 [Embedded Vision Agent] Inline image found: {image_name}")
         search_pattern = f"**/{unquote(image_name)}"
         found_files = glob.glob(search_pattern, recursive=True)
-        
+
         if found_files:
             image_path = found_files[0]
-            print(f"✅ Ritrovata per indicizzazione: {image_path}")
+            print(f"✅ Found for indexing: {image_path}")
             try:
                  response = vision_agent.run("Fornisci summary per la ricerca RAG dell'immagine.", images=[image_path])
                  result: ImageAnalysis = response.content
-                 
-                 print(f"👁️ Immagine tradotta in: {result.summary[:50]}...")
-                 
-                 # INSERISCI SOLO NEL DB PER LA RICERCA, NON ALTERARE IL MARKDOWN ORIGINALE
+
+                 print(f"👁️ Image translated into: {result.summary[:50]}...")
+
+                 # INSERT ONLY INTO THE DB FOR SEARCH, DO NOT ALTER THE ORIGINAL MARKDOWN
                  db.add(
                     documents=[result.summary],
                     metadatas=[{"source": match, "type": "embedded_image"}],
                     ids=[f"embedded_{image_name}_analysis"]
                  )
             except Exception as e:
-                 print(f"❌ Errore Analisi Immagine Embedded: {e}")
+                 print(f"❌ Embedded Image Analysis error: {e}")
         else:
-             print(f"❌ Errore: File immagine non trovato nel Vault: {image_name}")
-            
-    # IL TESTO ORIGINALE È SACRO - Ritorniamo il content identico senza mutare i tag Markdown
+             print(f"❌ Error: Image file not found in the Vault: {image_name}")
+
+    # THE ORIGINAL TEXT IS SACRED - Return the identical content without mutating the Markdown tags
     return content
 
 # =======================================================================
-# L'ORCHESTRA PRINCIPALE
+# THE MAIN ORCHESTRA
 # =======================================================================
 
 def run_pipeline(raw_note_path):
@@ -149,30 +149,30 @@ def run_pipeline(raw_note_path):
     existing_context = retrieve_context(raw_text)
     
     extractor_prompt = f"Contesto vault preesistente:\n{existing_context}\n\nNote odierne dell'utente:\n{raw_text}"
-    print("🤖 Splitter Agent in esecuzione...")
+    print("🤖 Splitter Agent running...")
     extractor_response = splitter_agent.run(extractor_prompt)
     extracted_data: ExtractionResult = extractor_response.content
-    
+
     oggi = datetime.now()
     data_str = oggi.strftime("%Y-%m-%d")
     id_univoco = oggi.strftime("%Y%m%d%H%M%S")
-    
-    print("💾 Python Formatter & Researchers: Generazione delle Atomic Notes...")
-    
+
+    print("💾 Python Formatter & Researchers: Generating the Atomic Notes...")
+
     for i, note in enumerate(extracted_data.new_notes):
-        # Sanitizzazione rigorosa per filename e titolo (sostituisci _ con spazio)
+        # Strict sanitization for filename and title (replace _ with space)
         safe_title = note.title.replace("_", " ").strip()
         safe_filename = note.filename.replace("_", " ").strip()
         if not safe_filename.endswith('.md'): safe_filename += '.md'
-        
-        print(f"   => Salvataggio Atomic Note '{safe_title}'")
-        
-        # Testo sacro, saltiamo l'alterazione del writer_agent
+
+        print(f"   => Saving Atomic Note '{safe_title}'")
+
+        # Sacred text, we skip the writer_agent alteration
         expanded_body = note.body.strip()
-        
-        # La ricerca avviene solo se si vuole conservare i link (che potresti voler disattivare, 
-        # ma possiamo ometterli se il testo deve essere 100% puro. Lasciamo web search out dal body).
-        
+
+        # Search only happens if you want to keep the links (which you might want to disable,
+        # but we can omit them if the text must be 100% pure. We leave web search out of the body).
+
         derives = ", ".join([f"[[{x}]]" for x in note.derives_from])
         leads = ", ".join([f"[[{x}]]" for x in note.leads_to])
         similar = ", ".join([f"[[{x}]]" for x in note.similar_to])
@@ -184,31 +184,31 @@ def run_pipeline(raw_note_path):
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(markdown_content)
         
-        print(f"   -> 🆕 Salvata nota finale: {safe_filename}")
+        print(f"   -> 🆕 Final note saved: {safe_filename}")
         agent_librarian(safe_filename, markdown_content, db)
-        
+
     for update in extracted_data.updates:
-        # Sanitizzazione anche per gli Updates
+        # Sanitization for Updates too
         fname = update.filename.replace("_", " ").strip()
         if not fname.endswith('.md'):
             fname += '.md'
         content = update.content_to_add.strip()
-        
-        # Filtro rigoroso anti-allucinazione
+
+        # Strict anti-hallucination filter
         if not fname or not content or "string" in fname or "unknown" in fname:
             print(f"   -> ⏭️ Skipped ghost update: '{fname}'")
             continue
-            
-        # Modalità APPEND: aggiunge il file a inbox/ o tenta di prenderlo da notes/ (se l'utente aggiorna note preesistenti)
-        # Qui potremmo creare un file UPDATE_ in modo che l'utente approvi l'append, o accodarlo direttamente. 
-        # Modifichiamo semplicemente in modo sicuro.
+
+        # APPEND mode: adds the file to inbox/ or tries to get it from notes/ (if the user updates existing notes)
+        # Here we could create an UPDATE_ file so the user approves the append, or append it directly.
+        # We simply edit it safely.
         file_path = os.path.join("inbox", f"UPDATE_{fname}")
         with open(file_path, "a", encoding="utf-8") as f:
             f.write(f"\n\n## Update {data_str}\n{content}\n")
-        print(f"   -> 🔄 Update (Append) salvato per: {fname}")
+        print(f"   -> 🔄 Update (Append) saved for: {fname}")
 
     if extracted_data.new_notes:
-        print("📑 Lecturer Agent: Generazione MOC riassuntiva...")
+        print("📑 Lecturer Agent: Generating summary MOC...")
         try:
             lecturer_resp = lecturer_agent.run(raw_text)
             summary = lecturer_resp.content.strip()

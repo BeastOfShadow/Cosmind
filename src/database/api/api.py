@@ -11,25 +11,25 @@ from agno.agent import Agent # type: ignore
 from agno.tools.duckduckgo import DuckDuckGoTools # type: ignore
 from src.config.llm_manager import get_llm_model
 
-# Importiamo dai nostri moduli puliti
+# Import from our clean modules
 from src.models.schemas import EditorAIRequest, NoteCreate
 from src.pipeline.orchestrator import run_pipeline
 from src.agents.chat_agent import chat_with_brain, chat_with_web
 from src.database.visualizer import get_3d_map_data
 from src.database.vector_db import sync_notes
 
-app = FastAPI(title="Neural Network Second Brain API", description="API per l'agente RAG e il vault delle note")
+app = FastAPI(title="Neural Network Second Brain API", description="API for the RAG agent and the notes vault")
 
-# Configurazione CORS per permettere al frontend React (Vite) di comunicare col backend
+# CORS configuration to allow the React frontend (Vite) to communicate with the backend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In produzione restringere
+    allow_origins=["*"], # Restrict in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Serve assets folder per le immagini del vault
+# Serve assets folder for the vault images
 app.mount("/assets", StaticFiles(directory="notes/assets"), name="assets")
 
 class ChatRequest(BaseModel):
@@ -41,53 +41,53 @@ def read_root():
 
 @app.post("/api/chat")
 def chat(request: ChatRequest):
-    """Esegue una query RAG sulle note del vault"""
+    """Runs a RAG query over the vault notes"""
     try:
         response = chat_with_brain(request.query)
         if not response:
-            return {"answer": "Errore interno durante la RAG", "sources": []}
+            return {"answer": "Internal error during RAG", "sources": []}
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/chat/web-search")
 def chat_web(request: ChatRequest):
-    """Esegue una query sul web usando l'agente delegato"""
+    """Runs a query on the web using the delegated agent"""
     try:
         response = chat_with_web(request.query)
         if not response:
-            return {"answer": "Errore interno durante la ricerca web", "sources": []}
+            return {"answer": "Internal error during web search", "sources": []}
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/sync")
 def sync_database():
-    """Sincronizza manualmente ChromaDB con la cartella fisica/inbox"""
+    """Manually syncs ChromaDB with the physical/inbox folder"""
     try:
         sync_notes()
-        return {"status": "success", "message": "Database sincronizzato con successo."}
+        return {"status": "success", "message": "Database synced successfully."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/process")
 def process_inbox():
-    """Lancia l'orchestrator per processare tutto ciò che c'è in raw_notes"""
+    """Launches the orchestrator to process everything in raw_notes"""
     try:
         note_grezze = glob.glob("raw_notes/*.md")
         if not note_grezze:
-            return {"status": "info", "message": "Nessuna nota da processare in 'raw_notes/'."}
-            
+            return {"status": "info", "message": "No notes to process in 'raw_notes/'."}
+
         for nota in note_grezze:
             run_pipeline(nota)
-            
-        return {"status": "success", "message": f"{len(note_grezze)} note processate con successo."}
+
+        return {"status": "success", "message": f"{len(note_grezze)} notes processed successfully."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/visualize")
 def get_map_data():
-    """Recupera i dati dal database per le mappe 2D, 3D e il Grafo"""
+    """Retrieves data from the database for the 2D, 3D maps and the Graph"""
     try:
         return get_3d_map_data()
     except Exception as e:
@@ -95,14 +95,14 @@ def get_map_data():
 
 @app.get("/api/vault")
 def get_vault_contents():
-    """Restituisce tutti i chunk salvati nel database per poterli esplorare"""
+    """Returns all the chunks saved in the database so they can be explored"""
     try:
         client = chromadb.PersistentClient(path="/app/.chroma_db")
-        
+
         try:
             collection = client.get_collection(name="note_ricerca")
         except Exception:
-            return {"documents": [], "total": 0, "error": "Collezione non trovata."}
+            return {"documents": [], "total": 0, "error": "Collection not found."}
             
         data = collection.get(include=['metadatas', 'documents'])
         
@@ -113,7 +113,7 @@ def get_vault_contents():
         for i, doc in enumerate(data['documents']):
             docs.append({
                 "id": str(i),
-                "source": data['metadatas'][i].get('source', 'Sconosciuto'),
+                "source": data['metadatas'][i].get('source', 'Unknown'),
                 "preview": doc[:150] + "..." if len(doc) > 150 else doc
             })
             
@@ -123,10 +123,10 @@ def get_vault_contents():
     
 @app.post("/api/notes")
 def save_note(note: NoteCreate):
-    """Salva una nuova nota Markdown direttamente nella cartella raw_notes"""
+    """Saves a new Markdown note directly into the raw_notes folder"""
     safe_title = note.title.strip().lower().replace(" ", "_").replace("/", "-")
     if not safe_title:
-        safe_title = "nuova_nota"
+        safe_title = "untitled_note"
     
     filename = f"{safe_title}.md"
     target_dir = "raw_notes"
@@ -139,14 +139,14 @@ def save_note(note: NoteCreate):
     try:
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(f"# {note.title}\n\n{note.content}")
-        return {"status": "success", "message": f"Nota salvata in {target_dir}"}
+        return {"status": "success", "message": f"Note saved to {target_dir}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# 3. ENDPOINT PER LISTARE LE NOTE (GET)
+# 3. ENDPOINT TO LIST NOTES (GET)
 @app.get("/api/notes")
 def list_notes():
-    """Restituisce la lista dei file Markdown presenti in raw_notes"""
+    """Returns the list of Markdown files present in raw_notes"""
     if not os.path.exists("raw_notes"):
         return {"notes": []}
     
@@ -154,13 +154,13 @@ def list_notes():
     notes = [os.path.basename(f) for f in files]
     return {"notes": notes}
 
-# 4. ENDPOINT PER LEGGERE LA SINGOLA NOTA (GET)
+# 4. ENDPOINT TO READ A SINGLE NOTE (GET)
 @app.get("/api/notes/{filename}")
 def get_note(filename: str):
-    """Legge il contenuto di una nota specifica e separa titolo e corpo"""
+    """Reads the content of a specific note and separates title and body"""
     filepath = os.path.join("raw_notes", filename)
     if not os.path.exists(filepath):
-        raise HTTPException(status_code=404, detail="Nota non trovata")
+        raise HTTPException(status_code=404, detail="Note not found")
     
     with open(filepath, "r", encoding="utf-8") as f:
         content = f.read()
@@ -180,8 +180,8 @@ import uuid
 
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
-    """Carica un'immagine dal frontend alla cartella notes/assets"""
-    # Genera nome univoco
+    """Uploads an image from the frontend to the notes/assets folder"""
+    # Generate a unique name
     ext = os.path.splitext(file.filename)[1] if file.filename else ""
     unique_filename = f"img_{int(time.time())}_{uuid.uuid4().hex[:8]}{ext}"
     
@@ -194,25 +194,25 @@ async def upload_file(file: UploadFile = File(...)):
     with open(file_location, "wb+") as file_object:
         shutil.copyfileobj(file.file, file_object)
         
-    # Restituisce la sintassi Markdown in base all'estensione
+    # Returns the Markdown syntax based on the extension
     if ext.lower() == ".pdf":
-        md_syntax = f"[Documento PDF](assets/{unique_filename})\n"
+        md_syntax = f"[PDF Document](assets/{unique_filename})\n"
     else:
-        md_syntax = f"![Immagine caricata](assets/{unique_filename})\n"
-        
+        md_syntax = f"![Uploaded image](assets/{unique_filename})\n"
+
     return {
-        "info": f"File salvato come {unique_filename}",
+        "info": f"File saved as {unique_filename}",
         "markdown_syntax": md_syntax
     }
 
 @app.delete("/api/upload/{filename}")
 def delete_file(filename: str):
-    """Elimina un file dalla cartella assets"""
+    """Deletes a file from the assets folder"""
     file_location = os.path.join("notes/assets", filename)
     if os.path.exists(file_location):
         os.remove(file_location)
-        return {"status": "success", "message": f"File {filename} eliminato"}
-    raise HTTPException(status_code=404, detail="File non trovato")
+        return {"status": "success", "message": f"File {filename} deleted"}
+    raise HTTPException(status_code=404, detail="File not found")
 
 @app.post("/api/editor/ai")
 def editor_ai_assistant(request: EditorAIRequest):
@@ -220,7 +220,7 @@ def editor_ai_assistant(request: EditorAIRequest):
         testo = request.text
         azione = request.action
         
-        print(f"🤖 Avvio AI Copilot per azione: {azione}")
+        print(f"🤖 Starting AI Copilot for action: {azione}")
 
         if azione == "expand":
             ruolo = "Ricercatore"
@@ -249,9 +249,9 @@ def editor_ai_assistant(request: EditorAIRequest):
             ]
             usa_tools = []
         else:
-            return {"result": f"❌ Azione sconosciuta: {azione}"}
+            return {"result": f"❌ Unknown action: {azione}"}
 
-        # Creiamo l'agente
+        # Create the agent
         editor_agent = Agent(
             name="Editor Copilot",
             role=ruolo,
@@ -260,18 +260,18 @@ def editor_ai_assistant(request: EditorAIRequest):
             instructions=istruzioni
         )
         
-        # Eseguiamo la richiesta
+        # Run the request
         prompt = f"Analizza questo testo e svolgi il tuo compito:\n\n{testo}"
         risposta = editor_agent.run(prompt)
-        
-        # Se tutto va bene, ritorniamo il testo dell'AI
+
+        # If everything goes well, return the AI text
         return {"result": risposta.content.strip()}
 
     except Exception as e:
-        # Se qualcosa si rompe, stampiamo l'errore nel terminale di Docker
+        # If something breaks, print the error in the Docker terminal
         import traceback
         traceback.print_exc()
-        
-        # Invece di far crollare FastAPI (che causa il finto errore CORS),
-        # restituiamo l'errore al frontend come se fosse la risposta dell'AI!
-        return {"result": f"❌ Errore interno del sistema: {str(e)}"}
+
+        # Instead of crashing FastAPI (which causes the fake CORS error),
+        # return the error to the frontend as if it were the AI's response!
+        return {"result": f"❌ Internal system error: {str(e)}"}

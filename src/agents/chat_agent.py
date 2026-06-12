@@ -10,41 +10,41 @@ LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:14b")
 def chat_with_brain(user_query):
     print(f"\n🔍 Searching the Second Brain for: '{user_query}'...")
     
-    # 1. Connettiti al Database locale
+    # 1. Connect to the local Database
     collection = get_db()
-    
-    # 2. Fai la ricerca vettoriale (RAG - Retrieval)
+
+    # 2. Run the vector search (RAG - Retrieval)
     try:
         risultati = collection.query(query_texts=[user_query], n_results=3)
         if not risultati.get('documents') or len(risultati['documents'][0]) == 0:
-            print("⚠️ Nessuna nota trovata nel tuo database per questa ricerca.")
+            print("⚠️ No notes found in your database for this search.")
             return {
-                "answer": "Non ho trovato questa informazione nei tuoi appunti locali. Vuoi che cerchi sul web?",
+                "answer": "I couldn't find this information in your local notes. Do you want me to search the web?",
                 "sources": [],
                 "action_required": "web_search_button"
             }
     except Exception as e:
-        print(f"⚠️ Errore RAG: {str(e)}") # Così se c'è un errore, vedi quale è!
-        return {"answer": "Errore durante la ricerca nel database.", "sources": []}
-        
-    # 3. Costruisci il Contesto
+        print(f"⚠️ RAG error: {str(e)}") # This way if there's an error, you see what it is!
+        return {"answer": "Error while searching the database.", "sources": []}
+
+    # 3. Build the Context
     docs = risultati['documents'][0]
     metadatas = risultati['metadatas'][0]
     contesto_recuperato = ""
-    fonti_dettagliate = [] # Nuova lista per le fonti con il loro contenuto
-    
+    fonti_dettagliate = [] # New list for the sources with their content
+
     for d, meta in zip(docs, metadatas):
         nome_fonte = meta['source']
         contesto_recuperato += f"\n\n--- FONTE: {nome_fonte} ---\n{d}"
-        # Salviamo sia il nome che il pezzo di testo
+        # Save both the name and the text snippet
         fonti_dettagliate.append({
             "source": nome_fonte,
             "content": d
         })
-    
-    print("🧠 Sto analizzando le tue note (Agno Agent)...")
-    
-    # 4. Crea l'Agente Agno per la chat
+
+    print("🧠 Analyzing your notes (Agno Agent)...")
+
+    # 4. Create the Agno Agent for the chat
     chat_agent = Agent(
         name="Second Brain Assistant",
         role="Studente Universitario Assistente",
@@ -57,16 +57,16 @@ def chat_with_brain(user_query):
         ]
     )
     
-    # 5. Genera la risposta
+    # 5. Generate the response
     prompt = f"CONTESTO DAL VAULT:\n{contesto_recuperato}\n\nDOMANDA DELL'UTENTE:\n{user_query}"
     response = chat_agent.run(prompt)
-    
-    # 6. Restituisci o stampa la risposta
+
+    # 6. Return or print the response
     answer = response.content.strip()
-    
+
     if "REQUIRE_WEB_SEARCH" in answer:
         return {
-            "answer": "Non ho trovato questa informazione nei tuoi appunti locali. Vuoi che cerchi sul web?",
+            "answer": "I couldn't find this information in your local notes. Do you want me to search the web?",
             "sources": [],
             "action_required": "web_search_button"
         }

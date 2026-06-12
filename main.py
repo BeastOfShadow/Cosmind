@@ -1,21 +1,21 @@
 import sys
 
-# Importiamo dai nostri moduli puliti
+# Import from our clean modules
 from src.pipeline.orchestrator import run_pipeline
 from src.agents.chat_agent import chat_with_brain
 from src.database.visualizer import visualize_3d_chroma
 from src.database.vector_db import sync_notes
 
 def menu():
-    print("\n🧠 BENVENUTO NEL TUO SECOND BRAIN AI")
+    print("\n🧠 WELCOME TO YOUR SECOND BRAIN AI")
     print("====================================")
-    print("1. 📝 Processa note in Inbox (Orchestrator)")
-    print("2. 💬 Chatta con le tue note (RAG)")
-    print("3. 🌌 Visualizza Mappa 3D del Vault")
-    print("4. 🔄 Sincronizza Database locale (Sync)")
-    print("5. ❌ Esci")
-    
-    scelta = input("\nCosa vuoi fare? [1/2/3/4/5]: ")
+    print("1. 📝 Process notes in Inbox (Orchestrator)")
+    print("2. 💬 Chat with your notes (RAG)")
+    print("3. 🌌 Visualize 3D Map of the Vault")
+    print("4. 🔄 Sync local Database (Sync)")
+    print("5. ❌ Exit")
+
+    scelta = input("\nWhat do you want to do? [1/2/3/4/5]: ")
     return scelta
 
 def main():
@@ -24,34 +24,34 @@ def main():
         
         if scelta == '1':
             import glob
-            # Peschiamo le note grezze dalla cartella "raw_notes"
+            # Pick up the raw notes from the "raw_notes" folder
             note_grezze = glob.glob("raw_notes/*.md")
             if not note_grezze:
-                print("Nessuna nota da processare in 'raw_notes/'.")
+                print("No notes to process in 'raw_notes/'.")
             for nota in note_grezze:
                 run_pipeline(nota)
-                
+
         elif scelta == '2':
-            print("Scrivi 'exit' per tornare al menu principale.")
+            print("Type 'exit' to return to the main menu.")
             while True:
-                domanda = input("\nFai una domanda al tuo Vault: ")
+                domanda = input("\nAsk a question to your Vault: ")
                 if domanda.lower() == 'exit':
                     break
                 chat_with_brain(domanda)
-                
+
         elif scelta == '3':
             visualize_3d_chroma()
-            
+
         elif scelta == '4':
-            print("\n🔄 Sincronizzazione del database in corso...")
+            print("\n🔄 Syncing the database...")
             sync_notes()
-            
+
         elif scelta == '5':
-            print("Uscita in corso... Ciao! 👋")
+            print("Exiting... Bye! 👋")
             sys.exit(0)
-            
+
         else:
-            print("Scelta non valida, riprova.")
+            print("Invalid choice, try again.")
 
 if __name__ == "__main__":
     main()

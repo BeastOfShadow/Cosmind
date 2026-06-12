@@ -5,72 +5,72 @@ from sklearn.metrics.pairwise import cosine_similarity # type: ignore
 import textwrap
 
 def get_3d_map_data():
-    print("🧠 Recupero dati dal Second Brain per Dashboard Analitica...")
+    print("🧠 Retrieving data from the Second Brain for the Analytics Dashboard...")
     client = chromadb.PersistentClient(path="/app/.chroma_db")
-    
+
     try:
         collection = client.get_collection(name="note_ricerca")
     except Exception:
-        return {"error": "Collezione non trovata. Il database è vuoto."}
-    
+        return {"error": "Collection not found. The database is empty."}
+
     data = collection.get(include=['embeddings', 'documents', 'metadatas'])
     embeddings = data.get('embeddings')
-    
+
     if embeddings is None or len(embeddings) < 2:
-        return {"error": "Il database è vuoto o ha troppo pochi dati per generare grafici."}
-        
-    # 1. Calcolo 3D (PCA) per la visualizzazione spaziale veloce
+        return {"error": "The database is empty or has too little data to generate charts."}
+
+    # 1. 3D computation (PCA) for fast spatial visualization
     pca_3d = PCA(n_components=3)
     emb_3d = pca_3d.fit_transform(embeddings)
-    
-    # 2. Calcolo 2D (t-SNE) per formare "isole" di concetti
-    # Gestiamo la perplexity in modo sicuro nel caso ci siano poche note
+
+    # 2. 2D computation (t-SNE) to form concept "islands"
+    # We handle perplexity safely in case there are few notes
     perplex = min(30, len(embeddings) - 1)
     tsne_2d = TSNE(n_components=2, perplexity=perplex, random_state=42)
     emb_2d = tsne_2d.fit_transform(embeddings)
 
-    # 3. Calcolo del Grafo di Conoscenza (Matrice di Somiglianza)
+    # 3. Knowledge Graph computation (Similarity Matrix)
     sim_matrix = cosine_similarity(embeddings)
-    
+
     traces_3d = {}
     traces_2d = {}
     nodes = []
     links = []
 
-    # Popoliamo i nodi e le tracce spaziali
+    # Populate the nodes and the spatial traces
     for i, meta in enumerate(data['metadatas']):
-        source = meta.get('source', 'Sconosciuto')
+        source = meta.get('source', 'Unknown')
         testo = data['documents'][i]
         hover_text = "<br>".join(textwrap.wrap(testo[:100], width=40)) + "..."
-        
-        # Struttura per Mappa 3D
+
+        # Structure for 3D Map
         if source not in traces_3d:
             traces_3d[source] = {"x": [], "y": [], "z": [], "texts": [], "name": source}
         traces_3d[source]["x"].append(float(emb_3d[i, 0]))
         traces_3d[source]["y"].append(float(emb_3d[i, 1]))
         traces_3d[source]["z"].append(float(emb_3d[i, 2]))
         traces_3d[source]["texts"].append(source)
-        
-        # Struttura per Mappa 2D t-SNE
+
+        # Structure for 2D t-SNE Map
         if source not in traces_2d:
             traces_2d[source] = {"x": [], "y": [], "texts": [], "name": source}
         traces_2d[source]["x"].append(float(emb_2d[i, 0]))
         traces_2d[source]["y"].append(float(emb_2d[i, 1]))
         traces_2d[source]["texts"].append(hover_text)
 
-        # Nodi per il Grafo
+        # Nodes for the Graph
         nodes.append({
             "id": str(i),
             "name": source,
-            "val": 1, # Dimensione del nodo
+            "val": 1, # Node size
             "preview": testo[:100] + "..."
         })
 
-    # Popoliamo i link del grafo: colleghiamo i nodi con somiglianza > 75%
+    # Populate the graph links: connect nodes with similarity > 75%
     for i in range(len(embeddings)):
         for j in range(i + 1, len(embeddings)):
             similarity = float(sim_matrix[i, j])
-            if similarity > 0.75: # Soglia di correlazione! Modificala per avere più o meno linee
+            if similarity > 0.75: # Correlation threshold! Change it to get more or fewer lines
                 links.append({"source": str(i), "target": str(j), "similarity": similarity})
 
     return {
