@@ -65,9 +65,10 @@ No cloud required. Your data never leaves your machine.
 ### Option A — Local (Ollama)
 
 ```bash
-# 1. Install Ollama and pull a model
+# 1. Install Ollama and pull the models
 ollama pull qwen2.5:14b
 ollama pull llama3.2-vision   # for image notes
+ollama pull nomic-embed-text  # local multilingual embeddings (RAG)
 
 # 2. Configure
 cp .env.example .env          # then edit if needed (LLM_MODEL=qwen2.5:14b)
@@ -95,9 +96,16 @@ Set `OPENAI_API_KEY` in `.env` to route the agents through OpenAI instead of Oll
 ```env
 # .env
 LLM_MODEL=qwen2.5:14b
+EMBED_MODEL=nomic-embed-text # local embeddings — stays local even with OpenAI
+CHUNK_SIZE=600               # words per chunk before embedding
+CHUNK_OVERLAP=80             # word overlap between chunks
 OPENAI_API_KEY=          # optional — leave blank for fully local
 OPENAI_MODEL=gpt-4o-mini # used only if a key is set
 ```
+
+> **Embeddings are always local.** Even with an OpenAI key, notes are embedded
+> via Ollama (`EMBED_MODEL`). Changing `EMBED_MODEL` changes the vector
+> dimensionality — wipe `.chroma_db` (Docker volume `chroma_data`) and re-sync.
 
 ## 🧭 How to use
 

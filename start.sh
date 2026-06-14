@@ -14,6 +14,11 @@ set -a
 [ -f .env ] && source .env
 set +a
 
+# Embeddings stay 100% local via Ollama even when OpenAI handles the chat LLM.
+EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text}
+echo "🧬 Scaricando il modello di embedding locale ($EMBED_MODEL)..."
+ollama pull $EMBED_MODEL || echo "⚠️ Modello embedding non scaricato. Assicurati che l'app Ollama sia aperta sul Mac!"
+
 if [ -n "$OPENAI_API_KEY" ]; then
     echo "🔑 Chiave OpenAI trovata in .env! Verrà usata l'API in cloud per velocizzare tutto."
     echo "⏭️ Salto il controllo e il download del modello locale (Ollama)."

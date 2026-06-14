@@ -16,13 +16,38 @@ export interface ChatMessage {
 export interface VaultDoc {
   id?: string;
   source: string;
+  chunk_index: number;
+  chunk_total: number;
   preview: string;
+  content: string;
 }
 
 export interface VaultData {
   documents: VaultDoc[];
   total: number;
+  sources?: number;
   error?: string;
+}
+
+export interface NoteChunk {
+  chunk_index: number;
+  chunk_total: number;
+  content: string;
+}
+
+export interface SimilarNote {
+  source: string;
+  score: number;
+}
+
+export interface NoteDetail {
+  source: string;
+  content: string;
+  on_disk: boolean;
+  chunks: NoteChunk[];
+  similar: SimilarNote[];
+  error?: string;
+  detail?: string; // FastAPI 404 message
 }
 
 // --- Map / Visualizer ---

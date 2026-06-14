@@ -1,5 +1,4 @@
 import os
-import uuid
 import glob
 import re
 import time
@@ -14,7 +13,7 @@ from src.agents.core_agents import vision_agent, splitter_agent, researcher_agen
 warnings.filterwarnings("ignore", category=UserWarning)
 
 
-from src.database.vector_db import get_db, sync_notes
+from src.database.vector_db import get_db, sync_notes, add_document
 
 os.makedirs("inbox", exist_ok=True)
 os.makedirs("notes", exist_ok=True)
@@ -52,12 +51,10 @@ def agent_librarian(filename, content, db):
         file_path = os.path.join("notes", filename)
         
     mtime = os.path.getmtime(file_path) if os.path.exists(file_path) else 0
-    
-    db.add(
-        documents=[content],
-        metadatas=[{"source": filename, "mtime": mtime}],
-        ids=[str(uuid.uuid4())]
-    )
+
+    # Chunk long notes before embedding so retrieval returns focused passages.
+    # Each chunk keeps source + chunk index metadata (see vector_db.add_document).
+    add_document(db, content, filename, mtime=mtime)
 
 # =======================================================================
 # IMAGE PROCESSING

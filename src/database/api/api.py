@@ -18,7 +18,7 @@ from src.models.schemas import EditorAIRequest, NoteCreate
 from src.pipeline.orchestrator import run_pipeline
 from src.agents.chat_agent import chat_with_brain, chat_with_web
 from src.database.visualizer import get_3d_map_data
-from src.database.vector_db import sync_notes
+from src.database.vector_db import sync_notes, get_db
 
 app = FastAPI(title="Neural Network Cosmind API", description="API for the RAG agent and the notes vault")
 
@@ -145,22 +145,105 @@ def get_vault_contents():
             return {"documents": [], "total": 0, "error": "Collection not found."}
             
         data = collection.get(include=['metadatas', 'documents'])
-        
+
         if not data or not data.get('documents'):
-            return {"documents": [], "total": 0}
-            
+            return {"documents": [], "total": 0, "sources": 0}
+
         docs = []
         for i, doc in enumerate(data['documents']):
+            meta = data['metadatas'][i] or {}
             docs.append({
                 "id": str(i),
-                "source": data['metadatas'][i].get('source', 'Unknown'),
-                "preview": doc[:150] + "..." if len(doc) > 150 else doc
+                "source": meta.get('source', 'Unknown'),
+                "chunk_index": meta.get('chunk_index', 0),
+                "chunk_total": meta.get('chunk_total', 1),
+                "preview": doc[:150] + "..." if len(doc) > 150 else doc,
+                "content": doc,
             })
-            
-        return {"documents": docs, "total": len(docs)}
+
+        # Group chunks of the same note together, ordered by chunk index
+        docs.sort(key=lambda d: (d["source"], d["chunk_index"]))
+        distinct_sources = len({d["source"] for d in docs})
+
+        return {"documents": docs, "total": len(docs), "sources": distinct_sources}
     except Exception as e:
         return {"error": str(e), "documents": [], "total": 0}
-    
+
+
+@app.get("/api/note/{source}")
+def get_note_detail(source: str):
+    """Full detail of a single note: the real Markdown from disk, its chunks in
+    the vector DB, and the most semantically similar other notes."""
+    source = os.path.basename(source)  # defend against path traversal
+
+    # 1. Locate the real file on disk (notes/ then inbox/)
+    file_path = None
+    for base in ("/app/notes", "/app/inbox"):
+        if not os.path.exists(base):
+            continue
+        for root, _dirs, files in os.walk(base):
+            if source in files:
+                file_path = os.path.join(root, source)
+                break
+        if file_path:
+            break
+
+    content = None
+    if file_path and os.path.exists(file_path):
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception:
+            content = None
+
+    chunks = []
+    similar = []
+    try:
+        collection = get_db()
+        data = collection.get(include=["documents", "metadatas"])
+        for doc, meta in zip(data.get("documents", []), data.get("metadatas", [])):
+            meta = meta or {}
+            if os.path.basename(meta.get("source", "")) == source:
+                chunks.append({
+                    "chunk_index": meta.get("chunk_index", 0),
+                    "chunk_total": meta.get("chunk_total", 1),
+                    "content": doc,
+                })
+        chunks.sort(key=lambda c: c["chunk_index"])
+
+        # Reconstruct content from chunks if the file is gone from disk
+        if content is None and chunks:
+            content = "\n\n".join(c["content"] for c in chunks)
+
+        # Similar notes via embedding search (exclude this note, dedupe by source)
+        query_text = (content or source)[:2000]
+        res = collection.query(query_texts=[query_text], n_results=12)
+        metas = res.get("metadatas", [[]])[0]
+        dists = res.get("distances", [[]])[0]
+        seen = set()
+        for m, dist in zip(metas, dists):
+            s = os.path.basename((m or {}).get("source", ""))
+            if not s or s == source or s in seen:
+                continue
+            seen.add(s)
+            similar.append({"source": s, "score": round(max(0.0, 1.0 - dist), 3)})
+            if len(similar) >= 5:
+                break
+    except Exception as e:
+        print(f"⚠️ Note detail error for {source}: {e}")
+
+    if content is None and not chunks:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    return {
+        "source": source,
+        "content": content or "",
+        "on_disk": file_path is not None,
+        "chunks": chunks,
+        "similar": similar,
+    }
+
+
 @app.post("/api/notes")
 def save_note(note: NoteCreate):
     """Saves a new Markdown note directly into the raw_notes folder"""
