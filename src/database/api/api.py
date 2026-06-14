@@ -1,10 +1,12 @@
 from fastapi import FastAPI, HTTPException # type: ignore
 from fastapi.staticfiles import StaticFiles
 from fastapi import UploadFile, File # type: ignore
+from fastapi.responses import StreamingResponse # type: ignore
 import shutil
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
 from pydantic import BaseModel # type: ignore
 import glob
+import json
 import chromadb # type: ignore
 import os
 from agno.agent import Agent # type: ignore
@@ -79,11 +81,43 @@ def process_inbox():
             return {"status": "info", "message": "No notes to process in 'raw_notes/'."}
 
         for nota in note_grezze:
-            run_pipeline(nota)
+            for _msg in run_pipeline(nota):
+                pass
 
         return {"status": "success", "message": f"{len(note_grezze)} notes processed successfully."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/process/stream")
+def process_inbox_stream():
+    """Streams live pipeline progress as Server-Sent Events so the frontend can
+    show which note/agent the LLM is currently working on (like the Docker logs)."""
+    def event_gen():
+        def sse(payload):
+            return f"data: {json.dumps(payload)}\n\n"
+
+        note_grezze = sorted(glob.glob("raw_notes/*.md"))
+        if not note_grezze:
+            yield sse({"type": "done", "message": "No notes to process in 'raw_notes/'."})
+            return
+
+        total = len(note_grezze)
+        for idx, nota in enumerate(note_grezze):
+            yield sse({"type": "progress", "message": f"📄 File {idx + 1}/{total}: {os.path.basename(nota)}"})
+            try:
+                for msg in run_pipeline(nota):
+                    yield sse({"type": "progress", "message": msg})
+            except Exception as e:
+                yield sse({"type": "progress", "message": f"❌ Error on {os.path.basename(nota)}: {e}"})
+
+        yield sse({"type": "done", "message": f"✅ {total} file(s) processed."})
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 @app.get("/api/visualize")
 def get_map_data():

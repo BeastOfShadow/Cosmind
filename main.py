@@ -29,7 +29,8 @@ def main():
             if not note_grezze:
                 print("No notes to process in 'raw_notes/'.")
             for nota in note_grezze:
-                run_pipeline(nota)
+                for _msg in run_pipeline(nota):
+                    pass
 
         elif scelta == '2':
             print("Type 'exit' to return to the main menu.")

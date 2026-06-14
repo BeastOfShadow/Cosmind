@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -32,6 +32,8 @@ import {
 } from "lucide-react";
 import ForceGraph2D from "react-force-graph-2d";
 import ReactMarkdown from "react-markdown";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import PlotlyPlot from "react-plotly.js";
 const Plot = (PlotlyPlot as any).default || PlotlyPlot;
 
@@ -159,7 +161,9 @@ function ChatPage() {
             >
               {msg.role === "bot" ? (
                 <div className="prose prose-invert prose-p:leading-relaxed prose-pre:bg-slate-900 prose-pre:border prose-pre:border-slate-700 prose-img:rounded-xl prose-img:max-w-full max-w-none">
-                  <ReactMarkdown 
+                  <ReactMarkdown
+                    remarkPlugins={[remarkMath]}
+                    rehypePlugins={[rehypeKatex]}
                     components={{
                       img: ({node, src, alt, ...props}) => {
                         const imgSrc = src?.startsWith('assets/') ? `${ASSETS_URL}/${src.split('assets/')[1]}` : src;
@@ -265,6 +269,64 @@ function MapPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Responsive sizing for the force graph (it does not auto-fit its parent)
+  const graphBoxRef = useRef<HTMLDivElement>(null);
+  const fgRef = useRef<any>(null);
+  const [dims, setDims] = useState({ width: 800, height: 600 });
+  useEffect(() => {
+    const el = graphBoxRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const { width, height } = entries[0].contentRect;
+      setDims({ width, height });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Node connection count (degree) → drives node size + color so hubs stand out
+  const degreeMap = useMemo<Record<string, number>>(() => {
+    const m: Record<string, number> = {};
+    const links = mapData?.graph?.links || [];
+    for (const l of links) {
+      const s = typeof l.source === "object" ? l.source.id : l.source;
+      const t = typeof l.target === "object" ? l.target.id : l.target;
+      m[s] = (m[s] || 0) + 1;
+      m[t] = (m[t] || 0) + 1;
+    }
+    return m;
+  }, [mapData]);
+  const maxDeg = useMemo(
+    () => Math.max(1, ...Object.values(degreeMap)),
+    [degreeMap],
+  );
+
+  // Custom node renderer: sized/colored by degree, with a readable label
+  const drawNode = useCallback(
+    (node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+      const deg = degreeMap[node.id] || 0;
+      const r = 3 + (deg / maxDeg) * 8;
+      const intensity = 0.4 + 0.6 * (deg / maxDeg);
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
+      ctx.fillStyle = `rgba(129,140,248,${intensity})`; // indigo, brighter = more connected
+      ctx.fill();
+      ctx.lineWidth = 0.6;
+      ctx.strokeStyle = "rgba(199,210,254,0.7)";
+      ctx.stroke();
+
+      const label = String(node.name || "").replace(/\.md$/, "");
+      const shown = label.length > 24 ? label.slice(0, 23) + "…" : label;
+      const fontSize = Math.max(10 / globalScale, 1.5);
+      ctx.font = `${fontSize}px Inter, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillStyle = "rgba(203,213,225,0.9)";
+      ctx.fillText(shown, node.x, node.y + r + 1);
+    },
+    [degreeMap, maxDeg],
+  );
+
   if (loading)
     return (
       <div className="flex-1 flex items-center justify-center animate-pulse">
@@ -294,18 +356,20 @@ function MapPage() {
     hoverinfo: "text",
   }));
 
-  // Traces for the 2D (t-SNE)
+  // Traces for the 2D (t-SNE) — one trace per semantic cluster
   const plotly2D = mapData.traces2D.map((trace: any) => ({
     x: trace.x,
     y: trace.y,
-    text: trace.texts,
+    text: trace.texts, // short label shown on the marker when "Show Names" is on
+    hovertext: trace.hovertexts ?? trace.texts, // rich hover (source + snippet)
     name: trace.name,
     mode: showLabels ? "markers+text" : "markers",
     type: "scatter",
     textposition: "top center",
     textfont: { size: 11, color: "#cbd5e1" }, // Improved text readability
-    marker: { size: 10, opacity: 0.8 },
-    hoverinfo: "text+name",
+    marker: { size: 11, opacity: 0.85, line: { width: 1, color: "rgba(2,6,23,0.6)" } },
+    hoverinfo: "text",
+    hoverlabel: { align: "left" },
   }));
 
   // Shared layout for Plotly
@@ -342,7 +406,7 @@ function MapPage() {
               onClick={() => setView("2d")}
               className={`px-4 py-1.5 rounded-md text-sm transition-colors ${view === "2d" ? "bg-indigo-600 text-white shadow" : "text-slate-400 hover:text-white"}`}
             >
-            Islands (2D)
+            Clusters (2D)
           </button>
           <button
             onClick={() => setView("3d")}
@@ -360,7 +424,7 @@ function MapPage() {
         </div>
       </div>
 
-      <div className="flex-1 w-full h-full min-h-[500px] bg-slate-950 rounded-xl border border-slate-800 overflow-hidden relative shadow-2xl flex items-center justify-center">
+      <div ref={graphBoxRef} className="flex-1 w-full h-full min-h-[500px] bg-slate-950 rounded-xl border border-slate-800 overflow-hidden relative shadow-2xl flex items-center justify-center">
         {/* VIEW 1: t-SNE 2D */}
         {view === "2d" && (
           <Plot
@@ -412,16 +476,36 @@ function MapPage() {
 
         {/* VIEW 3: KNOWLEDGE GRAPH */}
         {view === "graph" && (
-          <ForceGraph2D
-            graphData={mapData.graph}
-            nodeLabel="preview"
-            nodeAutoColorBy="name"
-            linkColor={() => "rgba(99, 102, 241, 0.4)"}
-            linkWidth={1.5}
-            backgroundColor="#020617" // slate-950
-            width={800} // Will be overridden if we add a resize observer, but works fine as a fallback
-            height={600}
-          />
+          <>
+            <ForceGraph2D
+              ref={fgRef}
+              graphData={mapData.graph}
+              width={dims.width}
+              height={dims.height}
+              backgroundColor="#020617" // slate-950
+              nodeLabel={(n: any) => n.preview}
+              nodeRelSize={1}
+              nodeCanvasObject={drawNode}
+              nodePointerAreaPaint={(node: any, color: string, ctx: CanvasRenderingContext2D) => {
+                const deg = degreeMap[node.id] || 0;
+                const r = 3 + (deg / maxDeg) * 8;
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, r + 2, 0, 2 * Math.PI);
+                ctx.fill();
+              }}
+              linkColor={(l: any) => `rgba(99,102,241,${0.15 + 0.55 * (l.similarity ?? 0.5)})`}
+              linkWidth={(l: any) => 0.5 + 12 * Math.max(0, (l.similarity ?? 0.75) - 0.75)}
+              cooldownTicks={120}
+              onEngineStop={() => fgRef.current?.zoomToFit(400, 50)}
+            />
+            {/* LEGEND */}
+            <div className="absolute bottom-4 left-4 bg-slate-900/80 backdrop-blur-md border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-400 pointer-events-none">
+              <div className="font-semibold text-slate-300 mb-1">Knowledge Graph</div>
+              <div>● node size = connections (hubs)</div>
+              <div>— line thickness = similarity (&gt; 75%)</div>
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -924,6 +1008,8 @@ function EditorPage() {
                 <div className={`overflow-y-auto h-full pr-4 pb-20 prose prose-invert prose-indigo prose-p:leading-relaxed prose-pre:bg-slate-950 prose-pre:border prose-pre:border-slate-800 prose-img:rounded-xl prose-img:max-w-full max-w-none ${viewMode === "split" ? "w-1/2" : "w-full"}`}>
                   {content.trim() ? (
                     <ReactMarkdown
+                      remarkPlugins={[remarkMath]}
+                      rehypePlugins={[rehypeKatex]}
                       components={{
                         img: ({node, src, alt, ...props}) => {
                           const imgSrc = src?.startsWith('assets/') ? `${ASSETS_URL}/${src.split('assets/')[1]}` : src;
@@ -982,6 +1068,8 @@ function EditorPage() {
               ) : (
                 <div className="prose prose-invert prose-sm prose-indigo prose-p:leading-relaxed prose-pre:bg-slate-950 prose-pre:border prose-pre:border-slate-800 prose-img:rounded-lg prose-img:max-w-full max-w-none">
                   <ReactMarkdown
+                    remarkPlugins={[remarkMath]}
+                    rehypePlugins={[rehypeKatex]}
                     components={{
                       img: ({node, src, alt, ...props}) => {
                         const imgSrc = src?.startsWith('assets/') ? `${ASSETS_URL}/${src.split('assets/')[1]}` : src;
@@ -1003,6 +1091,8 @@ function EditorPage() {
 function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const [actionStatus, setActionStatus] = useState<string | null>(null);
+  const [processing, setProcessing] = useState(false);
+  const [processMsg, setProcessMsg] = useState("Process Inbox");
 
   const triggerAction = async (endpoint: string, msg: string) => {
     setActionStatus("Running...");
@@ -1014,6 +1104,49 @@ function Layout({ children }: { children: React.ReactNode }) {
       setActionStatus("❌ Error");
     }
     setTimeout(() => setActionStatus(null), 4000);
+  };
+
+  // Streams live LLM progress from the backend so the button shows which
+  // note/agent is being worked on (mirrors the Docker logs).
+  const runProcessStream = async () => {
+    if (processing) return;
+    setProcessing(true);
+    setProcessMsg("🚀 Starting...");
+    setActionStatus(null);
+    try {
+      const res = await fetch(`${API_URL}/process/stream`, { method: "POST" });
+      if (!res.body) throw new Error("No stream");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let last = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
+        for (const part of parts) {
+          const line = part.replace(/^data:\s?/, "").trim();
+          if (!line) continue;
+          try {
+            const evt = JSON.parse(line);
+            last = evt.message;
+            if (evt.type === "done") setActionStatus(evt.message);
+            else setProcessMsg(evt.message);
+          } catch {
+            /* ignore keep-alive / partial frames */
+          }
+        }
+      }
+      if (!actionStatus) setActionStatus(last || "✅ Done");
+    } catch (err: any) {
+      setActionStatus("❌ Error");
+    } finally {
+      setProcessing(false);
+      setProcessMsg("Process Inbox");
+      setTimeout(() => setActionStatus(null), 5000);
+    }
   };
 
   const navClass = (path: string) =>
@@ -1041,10 +1174,16 @@ function Layout({ children }: { children: React.ReactNode }) {
         </nav>
         <div className="mt-auto flex flex-col gap-3 border-t border-slate-800 pt-6">
           <button
-            onClick={() => triggerAction("process", "Inbox processing finished")}
-            className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 p-3 rounded-lg border border-slate-700 text-sm"
+            onClick={runProcessStream}
+            disabled={processing}
+            title={processing ? processMsg : "Process Inbox"}
+            className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 disabled:hover:bg-slate-800 disabled:cursor-progress p-3 rounded-lg border border-slate-700 text-sm overflow-hidden"
           >
-            <FolderSync size={16} className="text-amber-400" /> Process Inbox
+            <FolderSync
+              size={16}
+              className={`text-amber-400 shrink-0 ${processing ? "animate-spin" : ""}`}
+            />
+            <span className="truncate">{processing ? processMsg : "Process Inbox"}</span>
           </button>
           <button
             onClick={() => triggerAction("sync", "Sync finished")}

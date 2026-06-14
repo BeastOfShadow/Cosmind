@@ -21,6 +21,10 @@ env/
 
 # Generated artifacts
 brain_map.html
+3d_map.html
+notes/3d_map.html
+# Processed raw notes (archived by the pipeline after a successful run)
+raw_notes/processed/
 
 # Private vault content — keep folder structure + demo note, ignore real notes
 inbox/*

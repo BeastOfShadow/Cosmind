@@ -2,8 +2,24 @@ import os
 import chromadb # type: ignore
 from sklearn.decomposition import PCA # type: ignore
 from sklearn.manifold import TSNE # type: ignore
+from sklearn.cluster import KMeans # type: ignore
+from sklearn.feature_extraction.text import CountVectorizer # type: ignore
 from sklearn.metrics.pairwise import cosine_similarity # type: ignore
 import textwrap
+
+
+def _cluster_theme(docs):
+    """Derive a short theme label from a cluster's documents using the top
+    frequent content words (fallback to empty string if extraction fails)."""
+    try:
+        vec = CountVectorizer(stop_words="english", token_pattern=r"[A-Za-z]{4,}")
+        X = vec.fit_transform(docs)
+        freqs = X.sum(axis=0).A1
+        names = vec.get_feature_names_out()
+        top = [names[i] for i in freqs.argsort()[::-1][:3]]
+        return ", ".join(top)
+    except Exception:
+        return ""
 
 CHROMA_PATH = "/app/.chroma_db"
 
@@ -87,21 +103,28 @@ def get_3d_map_data():
     tsne_2d = TSNE(n_components=2, perplexity=perplex, random_state=42)
     emb_2d = tsne_2d.fit_transform(embeddings)
 
+    # 2b. Semantic clustering (KMeans) so the 2D map shows real "islands of
+    # concepts" colored by cluster, not by source file.
+    n_points = len(embeddings)
+    k = max(2, min(8, n_points // 4)) if n_points >= 4 else min(2, n_points)
+    k = min(k, n_points)
+    cluster_labels = KMeans(n_clusters=k, random_state=42, n_init=10).fit_predict(embeddings)
+
     # 3. Knowledge Graph computation (Similarity Matrix)
     sim_matrix = cosine_similarity(embeddings)
 
     traces_3d = {}
     traces_2d = {}
+    cluster_docs = {}
     nodes = []
     links = []
 
-    # Populate the nodes and the spatial traces
+    # Populate the 3D traces (by source), the 2D traces (by cluster) and the graph nodes
     for i, meta in enumerate(data['metadatas']):
         source = meta.get('source', 'Unknown')
         testo = data['documents'][i]
-        hover_text = "<br>".join(textwrap.wrap(testo[:100], width=40)) + "..."
 
-        # Structure for 3D Map
+        # Structure for 3D Map (grouped by source file)
         if source not in traces_3d:
             traces_3d[source] = {"x": [], "y": [], "z": [], "texts": [], "name": source}
         traces_3d[source]["x"].append(float(emb_3d[i, 0]))
@@ -109,12 +132,17 @@ def get_3d_map_data():
         traces_3d[source]["z"].append(float(emb_3d[i, 2]))
         traces_3d[source]["texts"].append(source)
 
-        # Structure for 2D t-SNE Map
-        if source not in traces_2d:
-            traces_2d[source] = {"x": [], "y": [], "texts": [], "name": source}
-        traces_2d[source]["x"].append(float(emb_2d[i, 0]))
-        traces_2d[source]["y"].append(float(emb_2d[i, 1]))
-        traces_2d[source]["texts"].append(hover_text)
+        # Structure for 2D t-SNE Map (grouped by semantic cluster)
+        cid = int(cluster_labels[i])
+        if cid not in traces_2d:
+            traces_2d[cid] = {"x": [], "y": [], "texts": [], "hovertexts": [], "name": f"Cluster {cid + 1}"}
+            cluster_docs[cid] = []
+        snippet = "<br>".join(textwrap.wrap(testo[:160], width=45))
+        traces_2d[cid]["x"].append(float(emb_2d[i, 0]))
+        traces_2d[cid]["y"].append(float(emb_2d[i, 1]))
+        traces_2d[cid]["texts"].append(source.replace(".md", ""))           # short on-marker label
+        traces_2d[cid]["hovertexts"].append(f"<b>{source}</b><br>{snippet}")  # rich hover
+        cluster_docs[cid].append(testo)
 
         # Nodes for the Graph
         nodes.append({
@@ -123,6 +151,12 @@ def get_3d_map_data():
             "val": 1, # Node size
             "preview": testo[:100] + "..."
         })
+
+    # Name each cluster after its top keywords -> "Cluster 1: ai, model, data"
+    for cid, trace in traces_2d.items():
+        theme = _cluster_theme(cluster_docs[cid])
+        if theme:
+            trace["name"] = f"Cluster {cid + 1}: {theme}"
 
     # Populate the graph links: connect nodes with similarity > 75%
     for i in range(len(embeddings)):

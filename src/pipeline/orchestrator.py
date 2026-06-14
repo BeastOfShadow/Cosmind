@@ -2,6 +2,8 @@ import os
 import uuid
 import glob
 import re
+import time
+import shutil
 from urllib.parse import unquote
 from datetime import datetime
 
@@ -128,28 +130,53 @@ def extract_and_solve_embedded_images(content, db):
 # THE MAIN ORCHESTRA
 # =======================================================================
 
-def run_pipeline(raw_note_path):
-    print(f"🚀 Starting Agno Pipeline for file: {raw_note_path}\n")
-    
+def archive_raw_note(raw_note_path):
+    """Move a successfully processed raw note into raw_notes/processed/ so it
+    is preserved but no longer picked up by glob('raw_notes/*.md')."""
     if not os.path.exists(raw_note_path):
-        print(f"❌ Error: File {raw_note_path} not found.")
         return
-        
+    archive_dir = os.path.join(os.path.dirname(raw_note_path) or ".", "processed")
+    os.makedirs(archive_dir, exist_ok=True)
+    dest = os.path.join(archive_dir, os.path.basename(raw_note_path))
+    if os.path.exists(dest):
+        base, ext = os.path.splitext(os.path.basename(raw_note_path))
+        dest = os.path.join(archive_dir, f"{base}_{int(time.time())}{ext}")
+    shutil.move(raw_note_path, dest)
+    print(f"📦 Archived processed note -> {dest}")
+
+
+def run_pipeline(raw_note_path):
+    """Generator: runs the agent pipeline on a single raw note and yields
+    human-readable progress messages (also printed to the Docker logs).
+    On success the raw note is moved to raw_notes/processed/."""
+    def step(msg):
+        print(msg)
+        return msg
+
+    yield step(f"🚀 Starting pipeline: {os.path.basename(raw_note_path)}")
+
+    if not os.path.exists(raw_note_path):
+        yield step(f"❌ Error: File {raw_note_path} not found.")
+        return
+
     db = get_db()
-    
+
     if raw_note_path.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+        yield step("📸 Vision Agent: analyzing image...")
         process_image(raw_note_path, db)
-        print("\n✅ Vision Pipeline completed successfully!")
+        yield step("✅ Vision Pipeline completed successfully!")
+        archive_raw_note(raw_note_path)
         return
 
     with open(raw_note_path, 'r', encoding="utf-8") as f:
         raw_text = f.read()
     raw_text = extract_and_solve_embedded_images(raw_text, db)
-    
+
+    yield step("🔍 Searching the vault for similar notes...")
     existing_context = retrieve_context(raw_text)
-    
+
     extractor_prompt = f"Contesto vault preesistente:\n{existing_context}\n\nNote odierne dell'utente:\n{raw_text}"
-    print("🤖 Splitter Agent running...")
+    yield step("🤖 Splitter Agent: extracting atomic notes...")
     extractor_response = splitter_agent.run(extractor_prompt)
     extracted_data: ExtractionResult = extractor_response.content
 
@@ -157,7 +184,8 @@ def run_pipeline(raw_note_path):
     data_str = oggi.strftime("%Y-%m-%d")
     id_univoco = oggi.strftime("%Y%m%d%H%M%S")
 
-    print("💾 Python Formatter & Researchers: Generating the Atomic Notes...")
+    total_new = len(extracted_data.new_notes)
+    yield step(f"💾 Generating {total_new} atomic note(s)...")
 
     for i, note in enumerate(extracted_data.new_notes):
         # Strict sanitization for filename and title (replace _ with space)
@@ -165,7 +193,7 @@ def run_pipeline(raw_note_path):
         safe_filename = note.filename.replace("_", " ").strip()
         if not safe_filename.endswith('.md'): safe_filename += '.md'
 
-        print(f"   => Saving Atomic Note '{safe_title}'")
+        yield step(f"   => [{i + 1}/{total_new}] Saving atomic note '{safe_title}'")
 
         # Sacred text, we skip the writer_agent alteration
         expanded_body = note.body.strip()
@@ -208,7 +236,7 @@ def run_pipeline(raw_note_path):
         print(f"   -> 🔄 Update (Append) saved for: {fname}")
 
     if extracted_data.new_notes:
-        print("📑 Lecturer Agent: Generating summary MOC...")
+        yield step("📑 Lecturer Agent: writing the summary note...")
         try:
             lecturer_resp = lecturer_agent.run(raw_text)
             summary = lecturer_resp.content.strip()
@@ -227,12 +255,15 @@ def run_pipeline(raw_note_path):
         print(f"   -> 🆕 Generated Literature Note: {lit_filename}")
         agent_librarian(lit_filename, markdown_content, db)
 
-    print("\n✅ Agno Orchestration Pipeline completed successfully!")
+    archive_raw_note(raw_note_path)
+    yield step(f"✅ Done: {os.path.basename(raw_note_path)} ({total_new} atomic notes)")
 
 if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1:
-        run_pipeline(sys.argv[1])
+        for _msg in run_pipeline(sys.argv[1]):
+            pass
     else:
         for arg in glob.glob("raw_notes/*.md"):
-            run_pipeline(arg)
+            for _msg in run_pipeline(arg):
+                pass
