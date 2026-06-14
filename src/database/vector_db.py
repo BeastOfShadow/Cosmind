@@ -112,6 +112,13 @@ def sync_notes():
     else:
         print(f"✅ Sync complete! New: {added_count}, Updated: {updated_count}, Deleted: {len(deleted_files)}")
 
+    return {
+        "added": added_count,
+        "updated": updated_count,
+        "deleted": len(deleted_files),
+        "total": collection.count(),
+    }
+
 if __name__ == "__main__":
     coll = get_db()
     print(f"✅ Connection established. Notes present: {coll.count()}")

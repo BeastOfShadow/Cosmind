@@ -3,22 +3,32 @@ import { API_URL } from "../lib/config";
 
 // Drives the sidebar's "Process Inbox" (live SSE progress) and "Sync Database"
 // actions. Keeps the streaming/reader plumbing out of the UI components.
+export type SyncState =
+  | { phase: "running" }
+  | { phase: "success"; message: string; stats: { added: number; updated: number; deleted: number; total: number } }
+  | { phase: "error"; message: string }
+  | null;
+
 export function useProcessStream() {
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const [processMsg, setProcessMsg] = useState("Process Inbox");
+  const [syncState, setSyncState] = useState<SyncState>(null);
 
   const runSync = async () => {
-    setActionStatus("Running...");
+    setSyncState({ phase: "running" });
     try {
       const res = await fetch(`${API_URL}/sync`, { method: "POST" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setActionStatus(data.message || "Sync finished");
-    } catch {
-      setActionStatus("❌ Error");
+      setSyncState({ phase: "success", message: data.message || "Sync finished", stats: data.stats });
+      setTimeout(() => setSyncState(null), 6000);
+    } catch (e) {
+      setSyncState({ phase: "error", message: e instanceof Error ? e.message : "Sync failed" });
     }
-    setTimeout(() => setActionStatus(null), 4000);
   };
+
+  const dismissSync = () => setSyncState(null);
 
   // Reads the Server-Sent Events stream and surfaces the latest progress line
   // (which note/agent the LLM is working on, mirroring the Docker logs).
@@ -63,5 +73,7 @@ export function useProcessStream() {
     }
   };
 
-  return { actionStatus, processing, processMsg, runProcess, runSync };
+  const dismissAction = () => setActionStatus(null);
+
+  return { actionStatus, processing, processMsg, syncState, runProcess, runSync, dismissSync, dismissAction };
 }

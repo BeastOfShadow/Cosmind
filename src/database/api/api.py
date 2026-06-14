@@ -67,8 +67,14 @@ def chat_web(request: ChatRequest):
 def sync_database():
     """Manually syncs ChromaDB with the physical/inbox folder"""
     try:
-        sync_notes()
-        return {"status": "success", "message": "Database synced successfully."}
+        stats = sync_notes()
+        changed = stats["added"] + stats["updated"] + stats["deleted"]
+        message = (
+            "Database already up to date."
+            if changed == 0
+            else f"Synced: {stats['added']} new, {stats['updated']} updated, {stats['deleted']} deleted."
+        )
+        return {"status": "success", "message": message, "stats": stats}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
